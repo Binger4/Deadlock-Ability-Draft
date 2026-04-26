@@ -1,8 +1,10 @@
 # Deadlock Ability Draft
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+
 A web-based Ability Draft tool for [Deadlock**](https://store.steampowered.com/app/1422450/Deadlock/), inspired by [Dota 2](https://store.steampowered.com/app/570/Dota_2/) [Ability Draft](https://dota2.fandom.com/wiki/Ability_Draft).
 
-[Screenshot](https://i.imgur.com/T0ek9dT.png)
+![Screenshot](https://i.imgur.com/T0ek9dT.png)
 
 Players create a room, join by code, pick a team, draft heroes and abilities, then export generated Deadlock `.vdata` files and, if packing tools are installed, a ready `.vpk`.
 
@@ -137,7 +139,7 @@ Change it before hosting:
 
 
 
-[Screenshot](https://i.imgur.com/3CQQXCw.png)
+![Screenshot](https://i.imgur.com/3CQQXCw.png)
 
 
 ## Draft Timers
