@@ -8,6 +8,10 @@ A web-based Ability Draft tool for [Deadlock](https://store.steampowered.com/app
 
 Players create a room, join by code, pick a team, draft heroes and abilities, then export generated Deadlock `.vdata` files and, if packing tools are installed, a ready `.vpk`.
 
+
+**Live at: [deadlockabilitydraft.com](https://deadlockabilitydraft.com)**
+
+
 ## Installation
 
 1. Install [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0).
