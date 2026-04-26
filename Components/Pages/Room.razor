@@ -1,0 +1,1068 @@
+@page "/room/{Code}/lobby"
+@page "/room/{Code}/draft"
+@rendermode InteractiveServer
+@implements IDisposable
+@using abilitydraft.Models
+@using abilitydraft.Services
+@inject DraftRoomService RoomService
+@inject DeadPackerService DeadPackerService
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<PageTitle>Draft Room @Code</PageTitle>
+
+@if (CurrentRoom is null)
+{
+    <main class="page-shell">
+        <section class="page-header">
+            <a href="/join">Join another room</a>
+            <p class="eyebrow">Room not found</p>
+            <h1>Invalid room code</h1>
+            <p>No active room exists for <code>@Code</code>.</p>
+        </section>
+    </main>
+}
+else
+{
+    <main class="draft-shell arena-bg">
+        <section class="room-topbar compact-topbar">
+            <div>
+                <a href="/">Home</a>
+                <p class="eyebrow">@CurrentRoom.Status</p>
+                <h1>@CurrentRoom.Name</h1>
+                <p>Room <code>@CurrentRoom.Code</code> - share <code>/join/@CurrentRoom.Code</code></p>
+            </div>
+            <div class="turn-box">
+                @if (CurrentRoom.CurrentTurn is null)
+                {
+                    <strong>@(CurrentRoom.Status == DraftRoomStatus.Lobby ? "Waiting in lobby" : "Draft complete")</strong>
+                    <span>@CurrentRoom.Clients.Count joined</span>
+                }
+                else
+                {
+                    <span>Current turn</span>
+                    <strong>@CurrentTurnPlayer?.NameOrFallback</strong>
+                    <em>@PickKindLabel(CurrentRoom.CurrentTurn.PickKind) - Round @CurrentRoom.CurrentTurn.RoundNumber</em>
+                }
+            </div>
+        </section>
+
+        @if (!string.IsNullOrWhiteSpace(Message))
+        {
+            <section class="inline-message">@Message</section>
+        }
+
+        @if (CurrentRoom.Status == DraftRoomStatus.Lobby)
+        {
+            <section class="lobby-grid">
+                <div class="lobby-panel">
+                    <h2>Lobby</h2>
+                    <p>@CurrentRoom.DeadlockData.Heroes.Count heroes and @CurrentRoom.DeadlockData.Abilities.Count abilities parsed.</p>
+                    <p>Mode: <strong>@ModeLabel(CurrentRoom.Config.DraftMode)</strong></p>
+                    <p>Duplicates: <strong>@(CurrentRoom.Config.AllowDuplicateAbilities ? "Allowed" : "Blocked")</strong></p>
+                    <p>Empty slots: <strong>@(CurrentRoom.Config.AllowEmptySlotsAsBots ? "Bots enabled" : "Removed at start")</strong></p>
+                    <p>Icons: <strong>@IconCount</strong> mapped</p>
+                    <p>Your session: <strong>@CurrentClientLabel</strong></p>
+                    @if (CurrentClient is not null)
+                    {
+                        <div class="lobby-actions">
+                            <label>
+                                <span>Team</span>
+                                <select @bind="SelectedLobbyTeam">
+                                    <option value="@DeadlockTeam.HiddenKing">The Hidden King</option>
+                                    <option value="@DeadlockTeam.Archmother">The Archmother</option>
+                                </select>
+                            </label>
+                            <button @onclick="ChangeTeam" disabled="@(SelectedLobbyTeam == CurrentClient.Team)">Change team</button>
+                        </div>
+                        <button @onclick="ToggleReady">@(CurrentClient.IsReady ? "Mark not ready" : "Mark ready")</button>
+                    }
+                    @if (IsHost)
+                    {
+                        <div class="host-settings">
+                            <h3>Room settings</h3>
+                            <label>
+                                <span>Draft mode</span>
+                                <select @bind="LobbyDraftMode">
+                                    <option value="@DraftMode.FreePick">FreePick</option>
+                                    <option value="@DraftMode.Classic">Classic</option>
+                                    <option value="@DraftMode.RandomHero">RandomHero</option>
+                                </select>
+                            </label>
+                            <label class="toggle">
+                                <input type="checkbox" @bind="LobbyAllowDuplicates" />
+                                <span>Allow duplicate ability picks</span>
+                            </label>
+                            <label class="toggle">
+                                <input type="checkbox" @bind="LobbyAllowBots" />
+                                <span>Allow empty slots as bots</span>
+                            </label>
+                            <label class="toggle">
+                                <input type="checkbox" @bind="LobbyAllowOverride" />
+                                <span>Host override picks/reorder</span>
+                            </label>
+                            <button @onclick="SaveLobbySettings">Save settings</button>
+                        </div>
+                        @if (ShowStartConfirmation)
+                        {
+                            <div class="confirm-box">
+                                <strong>Some players are not ready.</strong>
+                                <span>You can start anyway; all joined players will be included in the draft.</span>
+                                <button class="primary" @onclick="ConfirmStartDraft">Start anyway</button>
+                                <button @onclick="CancelStartConfirmation">Cancel</button>
+                            </div>
+                        }
+                        else
+                        {
+                            <button class="primary" @onclick="StartDraft">Start draft</button>
+                        }
+                    }
+                    else
+                    {
+                        <p class="message">Waiting for the host to start.</p>
+                    }
+                </div>
+                <div class="lobby-team-board">
+                    @LobbyTeam(DeadlockTeam.HiddenKing)
+                    @LobbyTeam(DeadlockTeam.Archmother)
+                </div>
+            </section>
+        }
+        else
+        {
+            <section class="draft-track">
+                @foreach (var turn in CurrentRoom.TurnOrder.Skip(Math.Max(0, CurrentRoom.CurrentTurnIndex - 2)).Take(18))
+                {
+                    var isCurrent = CurrentRoom.CurrentTurn == turn;
+                    var player = CurrentRoom.Players.FirstOrDefault(item => item.SlotNumber == turn.SlotNumber);
+                    if (player is not null)
+                    {
+                        <div class="track-step @(isCurrent ? "current" : "")">
+                            <span>@player.TeamIndex()</span>
+                            <small>@PickKindShort(turn.PickKind)</small>
+                            <strong>@Initials(player.NameOrFallback)</strong>
+                        </div>
+                    }
+                }
+            </section>
+
+            <section class="arena-layout">
+                <aside class="team-column team-hidden">
+                    <h2 class="team-heading hidden-king">The Hidden King</h2>
+                    @foreach (var player in TeamPlayers(DeadlockTeam.HiddenKing))
+                    {
+                        @PlayerPanel(player)
+                    }
+                </aside>
+
+                <section class="center-board">
+                    <div class="draft-callout">
+                        @if (CurrentRoom.Status == DraftRoomStatus.Completed)
+                        {
+                            <span>Draft complete</span>
+                            <strong>Generate the mod files below</strong>
+                        }
+                        else
+                        {
+                            <span>@(CanPick ? "Your pick" : "Waiting for pick")</span>
+                            <strong>
+                                <span>@CurrentTurnPlayer?.NameOrFallback drafts</span>
+                                <span>@PickKindLabel(CurrentRoom.CurrentTurn?.PickKind ?? DraftPickKind.RegularAbility)</span>
+                            </strong>
+                        }
+                    </div>
+
+                    <section class="draft-timer-panel">
+                        <div>
+                            <span>@TimerPhaseLabel</span>
+                            <strong>@TimerPlayerLabel</strong>
+                        </div>
+                        <b>@SecondsRemaining</b>
+                    </section>
+
+                    <h2 class="board-heading ultimate-heading">Ultimate abilities</h2>
+                    <section class="ultimate-top-panel">
+                        @foreach (var entry in UltimateEntries())
+                        {
+                            @AbilityTile(entry.Ability, entry.PoolItem)
+                        }
+                    </section>
+
+                    <h2 class="board-heading standard-heading">Standard abilities</h2>
+                    <section class="draft-pool-grid">
+                        @foreach (var block in DraftHeroBlocks())
+                        {
+                            @HeroDraftBlock(block)
+                        }
+                    </section>
+                </section>
+
+                <aside class="team-column team-archmother">
+                    <h2 class="team-heading archmother">The Archmother</h2>
+                    @foreach (var player in TeamPlayers(DeadlockTeam.Archmother))
+                    {
+                        @PlayerPanel(player)
+                    }
+                </aside>
+            </section>
+
+            @if (CurrentRoom.Status == DraftRoomStatus.Completed)
+            {
+                <section class="summary-panel">
+                    <h2>Final draft result</h2>
+                    <div class="summary-grid">
+                        @foreach (var player in SummaryPlayers)
+                        {
+                            <article class="summary-card">
+                                <strong>@player.NameOrFallback</strong>
+                                <small class="@TeamTextClass(player.Team)">@player.TeamName()</small>
+                                <span>@HeroName(player.HeroKey)</span>
+                                @for (var i = 0; i < player.Loadout.RegularAbilities.Count; i++)
+                                {
+                                    <small>Ability @(i + 1): @AbilityName(player.Loadout.RegularAbilities[i])</small>
+                                }
+                                <small>Ultimate: @AbilityName(player.Loadout.Ultimate)</small>
+                            </article>
+                        }
+                    </div>
+                    @if (IsHost)
+                    {
+                        <button class="primary" disabled="@IsGeneratingFiles" @onclick="GenerateZip">
+                            @(IsGeneratingFiles ? "Generating..." : "Generate files")
+                        </button>
+                    }
+                    @if (CurrentRoom.GeneratedZip is not null)
+                    {
+                        <a class="download" download="@CurrentRoom.GeneratedZipName" href="@DownloadHref">Download ZIP</a>
+                    }
+                    @if (CurrentRoom.GeneratedVpk is not null)
+                    {
+                        <div class="download-actions">
+                            <a class="download" download="@CurrentRoom.GeneratedVpkName" href="@DownloadVpkHref">Download VPK</a>
+                            <button class="download instruction-button" @onclick="() => ShowInstallInstructions = true">Instruction</button>
+                        </div>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(CurrentRoom.PackingError))
+                    {
+                        <p class="message danger-message">VPK generation failed: @CurrentRoom.PackingError</p>
+                        @if (!string.IsNullOrWhiteSpace(CurrentRoom.PackingLogPath))
+                        {
+                            <small>Packing log: <code>@CurrentRoom.PackingLogPath</code></small>
+                        }
+                    }
+                </section>
+            }
+
+            @if (ShowGameRootModal)
+            {
+                <section class="modal-backdrop">
+                    <div class="modal-card game-root-modal">
+                        <h2>Select Deadlock game folder</h2>
+                        <p>Open Deadlock in Steam -> Properties -> Installed Files -> Browse. Go to the <code>game</code> folder and copy its path. Paste it here.</p>
+                        <input placeholder="C:\Program Files (x86)\Steam\steamapps\common\Deadlock\game" @bind="GameRootPathInput" @bind:event="oninput" />
+                        @if (GameRootMissingItems.Count > 0)
+                        {
+                            <div class="warnings compact">
+                                @foreach (var item in GameRootMissingItems)
+                                {
+                                    <p>Missing: @item</p>
+                                }
+                            </div>
+                        }
+                        <div class="modal-actions">
+                            <button class="primary" @onclick="SaveGameRootPath">Save path</button>
+                            <button @onclick="() => ShowGameRootModal = false">Close</button>
+                        </div>
+                    </div>
+                </section>
+            }
+
+            @if (ShowInstallInstructions)
+            {
+                <section class="modal-backdrop">
+                    <div class="modal-card instruction-modal">
+                        <div class="modal-title-row">
+                            <div>
+                                <p class="eyebrow">VPK installation</p>
+                                <h2>Installation Guide</h2>
+                            </div>
+                            <button class="icon-button" title="Close" @onclick="() => ShowInstallInstructions = false">x</button>
+                        </div>
+
+                        <ol class="instruction-list">
+                            <li>Open your Deadlock root folder.</li>
+                            <li>Navigate to: <code>game/citadel</code></li>
+                            <li>Create a folder named: <code>addons</code></li>
+                            <li>In the same <code>citadel</code> folder, find the file: <code>gameinfo.gi</code></li>
+                            <li>Locate the block: <code>SearchPaths { }</code></li>
+                            <li>
+                                Replace it with:
+                                <div class="code-card">
+                                    <button @onclick="() => CopyInstructionText(SearchPathsBlock)">Copy</button>
+                                    <pre><code>@SearchPathsBlock</code></pre>
+                                </div>
+                            </li>
+                            <li>Take the generated VPK file.</li>
+                            <li>
+                                Rename it to: <code>pak##_dir.vpk</code>
+                                <p>Where <code>##</code> is any unused number from <code>01</code> to <code>99</code>.</p>
+                                <p>Examples: <code>pak01_dir.vpk</code>, <code>pak02_dir.vpk</code></p>
+                            </li>
+                            <li>Place the file into: <code>game/citadel/addons</code></li>
+                            <li>The mod can be installed by all players, but it is not required. It is enough if only the host installs it.</li>
+                            <li>The host must restart Deadlock after installing the mod.</li>
+                            <li>
+                                Launch Deadlock, open the console with F7 and type:
+                                <div class="code-card compact-code">
+                                    <button @onclick="() => CopyInstructionText(MapCommand)">Copy</button>
+                                    <pre><code>@MapCommand</code></pre>
+                                </div>
+                            </li>
+                            <li>After the map loads, immediately pause the game by pressing <code>P</code> so players can join.</li>
+                            <li>Then type in console: <code>status</code></li>
+                            <li>The server address will appear in the steamid line. Copy only the first address.</li>
+                            <li>
+                                Other players must connect using the console:
+                                <div class="code-card compact-code">
+                                    <button @onclick="() => CopyInstructionText(ConnectExample)">Copy</button>
+                                    <pre><code>@ConnectExample</code></pre>
+                                </div>
+                            </li>
+                            <li>After all players join and pick their heroes, the host can unpause the game.</li>
+                        </ol>
+
+                        @if (!string.IsNullOrWhiteSpace(CopyMessage))
+                        {
+                            <p class="copy-message">@CopyMessage</p>
+                        }
+
+                        <div class="modal-actions">
+                            <button class="primary" @onclick="() => ShowInstallInstructions = false">Done</button>
+                        </div>
+                    </div>
+                </section>
+            }
+        }
+    </main>
+}
+
+@code {
+    [Parameter] public string Code { get; set; } = string.Empty;
+    [SupplyParameterFromQuery] public string? PlayerId { get; set; }
+
+    private DraftRoom? CurrentRoom;
+    private string Message = string.Empty;
+    private int? DragSlotNumber;
+    private int? DragFromIndex;
+    private bool IsGeneratingFiles;
+    private bool ShowGameRootModal;
+    private bool ShowInstallInstructions;
+    private string GameRootPathInput = string.Empty;
+    private IReadOnlyList<string> GameRootMissingItems = [];
+    private string CopyMessage = string.Empty;
+    private DeadlockTeam SelectedLobbyTeam = DeadlockTeam.HiddenKing;
+    private DraftMode LobbyDraftMode = DraftMode.FreePick;
+    private bool LobbyAllowDuplicates;
+    private bool LobbyAllowBots;
+    private bool LobbyAllowOverride;
+    private bool ShowStartConfirmation;
+    private int LastHandledSoundEventId;
+    private readonly DateTime SoundListenStartedUtc = DateTime.UtcNow;
+
+    private DraftPlayerSlot? CurrentTurnPlayer => CurrentRoom?.CurrentTurn is null ? null : CurrentRoom.Players.FirstOrDefault(player => player.SlotNumber == CurrentRoom.CurrentTurn.SlotNumber);
+    private DraftClientSession? CurrentClient => CurrentRoom?.Clients.FirstOrDefault(player => player.PlayerId == PlayerId);
+    private bool IsHost => CurrentClient?.IsHost == true;
+    private bool CanPick => CurrentRoom is not null && RoomService.CanPlayerPickCurrentTurn(CurrentRoom, PlayerId);
+    private string CurrentClientLabel => CurrentClient is null ? "Unknown" : $"{CurrentClient.DisplayName}, {TeamName(CurrentClient.Team)}";
+    private int IconCount => CurrentRoom is null ? 0 : CurrentRoom.DeadlockData.Heroes.Count(hero => !string.IsNullOrWhiteSpace(hero.IconDataUrl)) + CurrentRoom.DeadlockData.Abilities.Count(ability => !string.IsNullOrWhiteSpace(ability.IconDataUrl));
+    private string DownloadHref => CurrentRoom?.GeneratedZip is null ? "#" : $"data:application/zip;base64,{Convert.ToBase64String(CurrentRoom.GeneratedZip)}";
+    private string DownloadVpkHref => CurrentRoom?.GeneratedVpk is null ? "#" : $"data:application/octet-stream;base64,{Convert.ToBase64String(CurrentRoom.GeneratedVpk)}";
+    private const string SearchPathsBlock = """
+        SearchPaths
+        {
+            Game                citadel/addons
+            Mod                 citadel
+            Write               citadel
+            Game                citadel
+            Mod                 core
+            Write               core
+            Game                core
+        }
+        """;
+    private const string MapCommand = "map dl_midtown";
+    private const string ConnectExample = "connect [A:1:...]";
+    private IEnumerable<DraftPlayerSlot> SummaryPlayers => CurrentRoom is null ? [] : DraftTurnService.ActiveSlots(CurrentRoom);
+    private int SecondsRemaining => CurrentRoom?.Status == DraftRoomStatus.Drafting
+        ? Math.Max(0, (int)Math.Ceiling((CurrentRoom.TimerEndsUtc - DateTime.UtcNow).TotalSeconds))
+        : 0;
+    private string TimerPhaseLabel => CurrentRoom?.TimerPhase switch
+    {
+        DraftTimerPhase.Preparation => "Preparation phase",
+        DraftTimerPhase.Picking => "Pick timer",
+        _ => CurrentRoom?.Status == DraftRoomStatus.Completed ? "Draft complete" : "Waiting"
+    };
+    private string TimerPlayerLabel => CurrentRoom?.TimerPhase == DraftTimerPhase.Preparation
+        ? $"First pick: {CurrentTurnPlayer?.NameOrFallback ?? "Pending"}"
+        : $"{CurrentTurnPlayer?.NameOrFallback ?? "Pending"} - {CurrentTurnPlayer?.TeamName() ?? "Team"}";
+
+    protected override void OnInitialized()
+    {
+        RoomService.RoomChanged += OnRoomChanged;
+    }
+
+    protected override void OnParametersSet()
+    {
+        CurrentRoom = RoomService.GetRoom(Code);
+        SyncLobbyFields();
+        if (CurrentRoom?.Status is DraftRoomStatus.Drafting or DraftRoomStatus.Completed &&
+            Nav.Uri.Contains("/lobby", StringComparison.OrdinalIgnoreCase))
+        {
+            Nav.NavigateTo($"/room/{CurrentRoom.Code}/draft?playerId={PlayerId}");
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (CurrentRoom is null)
+        {
+            return;
+        }
+
+        List<DraftSoundEvent> events;
+        lock (CurrentRoom)
+        {
+            events = CurrentRoom.SoundEvents
+                .Where(sound => sound.Id > LastHandledSoundEventId)
+                .OrderBy(sound => sound.Id)
+                .ToList();
+        }
+        if (events.Count == 0)
+        {
+            return;
+        }
+
+        LastHandledSoundEventId = Math.Max(LastHandledSoundEventId, events[^1].Id);
+        foreach (var sound in events.Where(ShouldPlaySound))
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("deadlockAbilityDraft.playSound", sound.SoundPath);
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    private bool ShouldPlaySound(DraftSoundEvent sound)
+    {
+        if (sound.CreatedUtc < SoundListenStartedUtc.AddSeconds(-3))
+        {
+            return false;
+        }
+
+        return sound.Scope == DraftSoundScope.All ||
+               (!string.IsNullOrWhiteSpace(PlayerId) && string.Equals(sound.TargetPlayerId, PlayerId, StringComparison.Ordinal));
+    }
+
+    private void SyncLobbyFields()
+    {
+        if (CurrentRoom is null)
+        {
+            return;
+        }
+
+        if (CurrentClient is not null)
+        {
+            SelectedLobbyTeam = CurrentClient.Team;
+        }
+
+        LobbyDraftMode = CurrentRoom.Config.DraftMode;
+        LobbyAllowDuplicates = CurrentRoom.Config.AllowDuplicateAbilities;
+        LobbyAllowBots = CurrentRoom.Config.AllowEmptySlotsAsBots;
+        LobbyAllowOverride = CurrentRoom.Config.AllowHostOverridePicks;
+    }
+
+    private IEnumerable<DraftPlayerSlot> TeamPlayers(DeadlockTeam team) =>
+        CurrentRoom is null
+            ? []
+            : CurrentRoom.Players.Where(player => player.Team == team).OrderBy(player => player.TeamIndex());
+
+    private IEnumerable<DraftClientSession> TeamClients(DeadlockTeam team) =>
+        CurrentRoom is null
+            ? []
+            : CurrentRoom.Clients.Where(client => client.Team == team).OrderBy(client => client.DisplayName, StringComparer.OrdinalIgnoreCase);
+
+    private RenderFragment LobbyTeam(DeadlockTeam team) => builder =>
+    {
+        var clients = TeamClients(team).ToList();
+        var sequence = 0;
+        builder.OpenElement(sequence++, "section");
+        builder.AddAttribute(sequence++, "class", $"lobby-team {TeamCssClass(team)}");
+        builder.OpenElement(sequence++, "h2");
+        builder.AddAttribute(sequence++, "class", $"team-heading {TeamCssClass(team)}");
+        builder.AddContent(sequence++, $"{TeamName(team)} ({clients.Count})");
+        builder.CloseElement();
+        if (clients.Count == 0)
+        {
+            builder.OpenElement(sequence++, "p");
+            builder.AddAttribute(sequence++, "class", "message");
+            builder.AddContent(sequence++, "No players yet.");
+            builder.CloseElement();
+        }
+
+        foreach (var client in clients)
+        {
+            builder.OpenElement(sequence++, "article");
+            builder.AddAttribute(sequence++, "class", "lobby-player-card");
+            builder.OpenElement(sequence++, "strong");
+            builder.AddContent(sequence++, client.DisplayName);
+            builder.CloseElement();
+            builder.OpenElement(sequence++, "span");
+            builder.AddAttribute(sequence++, "class", client.IsReady ? "ready-text" : "not-ready-text");
+            builder.AddContent(sequence++, client.IsReady ? "Ready" : "Not Ready");
+            builder.CloseElement();
+            if (client.IsHost)
+            {
+                builder.OpenElement(sequence++, "small");
+                builder.AddContent(sequence++, "Host");
+                builder.CloseElement();
+            }
+            builder.CloseElement();
+        }
+        builder.CloseElement();
+    };
+
+    private IEnumerable<HeroDraftGroup> DraftHeroBlocks()
+    {
+        if (CurrentRoom is null)
+        {
+            yield break;
+        }
+
+        foreach (var heroKey in CurrentRoom.DraftHeroPoolKeys)
+        {
+            var hero = CurrentRoom.DeadlockData.Heroes.FirstOrDefault(item => item.Key == heroKey);
+            if (hero is null)
+            {
+                continue;
+            }
+
+            var entries = hero.DraftableAbilityKeys()
+                .Select(MakeEntry)
+                .Where(entry => entry is not null)
+                .Select(entry => entry!)
+                .Where(entry => entry.Ability.PickKind == DraftPickKind.RegularAbility)
+                .ToList();
+
+            if (entries.Count > 0)
+            {
+                yield return new HeroDraftGroup(hero, entries);
+            }
+        }
+
+        DraftAbilityEntry? MakeEntry(string originalAbilityKey)
+        {
+            var poolItem = CurrentRoom.DraftAbilityPool.FirstOrDefault(item => item.OriginalAbilityKey == originalAbilityKey || item.AbilityKey == originalAbilityKey);
+            if (poolItem is null)
+            {
+                return null;
+            }
+
+            var ability = CurrentRoom.DeadlockData.Abilities.FirstOrDefault(item => item.Key == poolItem.AbilityKey);
+            return ability is null ? null : new DraftAbilityEntry(ability, poolItem);
+        }
+    }
+
+    private IEnumerable<DraftAbilityEntry> UltimateEntries()
+    {
+        if (CurrentRoom is null)
+        {
+            yield break;
+        }
+
+        foreach (var poolItem in CurrentRoom.DraftAbilityPool)
+        {
+            var ability = CurrentRoom.DeadlockData.Abilities.FirstOrDefault(item => item.Key == poolItem.AbilityKey);
+            if (ability?.PickKind != DraftPickKind.UltimateAbility)
+            {
+                continue;
+            }
+
+            yield return new DraftAbilityEntry(ability, poolItem);
+        }
+    }
+
+    private RenderFragment HeroDraftBlock(HeroDraftGroup block) => builder =>
+    {
+        var heroPicked = CurrentRoom?.PickedHeroKeys.Contains(block.Hero.Key) == true;
+        var canPickHero = CurrentRoom is not null && RoomService.CanPlayerPickKey(CurrentRoom, PlayerId, block.Hero.Key);
+        var sequence = 0;
+        builder.OpenElement(sequence++, "article");
+        builder.AddAttribute(sequence++, "class", $"draft-hero-block{(heroPicked ? " picked" : string.Empty)}");
+
+        builder.OpenElement(sequence++, "button");
+        builder.AddAttribute(sequence++, "class", $"draft-hero-card{(heroPicked ? " picked" : string.Empty)}");
+        builder.AddAttribute(sequence++, "disabled", !canPickHero);
+        builder.AddAttribute(sequence++, "title", block.Hero.Key);
+        builder.AddAttribute(sequence++, "onclick", EventCallback.Factory.Create(this, () => Pick(block.Hero.Key)));
+        HeroIcon(block.Hero)(builder);
+        builder.OpenElement(sequence++, "span");
+        builder.AddContent(sequence++, block.Hero.DisplayName);
+        builder.CloseElement();
+        builder.CloseElement();
+
+        builder.OpenElement(sequence++, "div");
+        builder.AddAttribute(sequence++, "class", "block-ability-grid");
+        foreach (var entry in block.Abilities)
+        {
+            AbilityTile(entry.Ability, entry.PoolItem)(builder);
+        }
+        builder.CloseElement();
+
+        builder.CloseElement();
+    };
+
+    private RenderFragment PlayerPanel(DraftPlayerSlot player) => builder =>
+    {
+        var hero = CurrentRoom?.DeadlockData.Heroes.FirstOrDefault(item => item.Key == player.HeroKey);
+        var isTurn = CurrentRoom?.CurrentTurn?.SlotNumber == player.SlotNumber;
+        var canReorder = CurrentRoom is not null && RoomService.CanPlayerReorderSlot(CurrentRoom, PlayerId, player);
+        var sequence = 0;
+        builder.OpenElement(sequence++, "article");
+        builder.AddAttribute(sequence++, "class", $"player-panel {TeamCssClass(player.Team)}{(isTurn ? " active" : string.Empty)}");
+        builder.OpenElement(sequence++, "div");
+        builder.AddAttribute(sequence++, "class", "hero-portrait");
+        if (!string.IsNullOrWhiteSpace(hero?.IconDataUrl))
+        {
+            builder.OpenElement(sequence++, "img");
+            builder.AddAttribute(sequence++, "src", hero.IconDataUrl);
+            builder.AddAttribute(sequence++, "alt", hero.DisplayName);
+            builder.CloseElement();
+        }
+        else
+        {
+            builder.OpenElement(sequence++, "span");
+            builder.AddContent(sequence++, "?");
+            builder.CloseElement();
+        }
+        builder.CloseElement();
+
+        builder.OpenElement(sequence++, "div");
+        builder.AddAttribute(sequence++, "class", "player-info");
+        builder.OpenElement(sequence++, "strong");
+        builder.AddContent(sequence++, HeroName(player.HeroKey).ToUpperInvariant());
+        builder.CloseElement();
+        builder.OpenElement(sequence++, "span");
+        builder.AddContent(sequence++, player.NameOrFallback);
+        builder.CloseElement();
+        builder.OpenElement(sequence++, "small");
+        builder.AddAttribute(sequence++, "class", "player-meta");
+        builder.OpenElement(sequence++, "span");
+        builder.AddAttribute(sequence++, "class", TeamTextClass(player.Team));
+        builder.AddContent(sequence++, $"{player.TeamName()} {player.TeamIndex()}");
+        builder.CloseElement();
+        builder.AddContent(sequence++, $" - {(player.IsBot ? "Bot" : player.LastSeenUtc is null ? "Open" : "Connected")}");
+        builder.CloseElement();
+
+        builder.OpenElement(sequence++, "div");
+        builder.AddAttribute(sequence++, "class", "slot-row");
+        foreach (var abilitySlot in AbilitySlots(player))
+        {
+            var abilityKey = abilitySlot.Key;
+            var ability = CurrentRoom?.DeadlockData.Abilities.FirstOrDefault(item => item.Key == abilityKey);
+            var hasAbility = !string.IsNullOrWhiteSpace(abilityKey);
+            var isNormalSlot = !abilitySlot.IsUltimate;
+            var canDrop = canReorder && isNormalSlot;
+            var canDrag = canDrop && hasAbility;
+            var isDragging = DragSlotNumber == player.SlotNumber && DragFromIndex == abilitySlot.Index;
+            builder.OpenElement(sequence++, "div");
+            builder.AddAttribute(sequence++, "class", MiniSlotClass(hasAbility, abilitySlot.IsUltimate, canDrag, canDrop, isDragging));
+            builder.AddAttribute(sequence++, "title", canDrag ? "Drag to reorder normal abilities" : abilitySlot.IsUltimate ? "Ultimate is locked to slot 4" : "Ability slot");
+            if (canDrag)
+            {
+                builder.AddAttribute(sequence++, "draggable", "true");
+                builder.AddAttribute(sequence++, "ondragstart", EventCallback.Factory.Create(this, () => StartAbilityDrag(player.SlotNumber, abilitySlot.Index)));
+                builder.AddAttribute(sequence++, "ondragend", EventCallback.Factory.Create(this, EndAbilityDrag));
+            }
+
+            if (canDrop)
+            {
+                builder.AddAttribute(sequence++, "ondragover", EventCallback.Factory.Create(this, () => { }));
+                builder.AddEventPreventDefaultAttribute(sequence++, "ondragover", true);
+                builder.AddEventPreventDefaultAttribute(sequence++, "ondrop", true);
+                builder.AddAttribute(sequence++, "ondrop", EventCallback.Factory.Create(this, () => DropAbility(player.SlotNumber, abilitySlot.Index)));
+            }
+
+            builder.OpenElement(sequence++, "span");
+            builder.AddAttribute(sequence++, "class", "slot-label");
+            builder.AddContent(sequence++, abilitySlot.Label);
+            builder.CloseElement();
+            if (!string.IsNullOrWhiteSpace(ability?.IconDataUrl))
+            {
+                builder.OpenElement(sequence++, "img");
+                builder.AddAttribute(sequence++, "src", ability.IconDataUrl);
+                builder.AddAttribute(sequence++, "alt", ability.DisplayName);
+                builder.CloseElement();
+            }
+            builder.CloseElement();
+        }
+        builder.CloseElement();
+
+        builder.CloseElement();
+        builder.CloseElement();
+    };
+
+    private RenderFragment HeroIcon(HeroDefinition hero) => builder =>
+    {
+        if (!string.IsNullOrWhiteSpace(hero.IconDataUrl))
+        {
+            builder.OpenElement(0, "img");
+            builder.AddAttribute(1, "src", hero.IconDataUrl);
+            builder.AddAttribute(2, "alt", hero.DisplayName);
+            builder.CloseElement();
+        }
+        else
+        {
+            builder.OpenElement(3, "span");
+            builder.AddAttribute(4, "class", "icon-placeholder");
+            builder.AddContent(5, "?");
+            builder.CloseElement();
+        }
+    };
+
+    private RenderFragment AbilityTile(AbilityDefinition ability, DraftAbilityPoolItem? poolItem) => builder =>
+    {
+        var picked = CurrentRoom?.PickedAbilityKeys.Contains(ability.Key) == true;
+        var canPick = CurrentRoom is not null && RoomService.CanPlayerPickKey(CurrentRoom, PlayerId, ability.Key);
+        var sequence = 0;
+        builder.OpenElement(sequence++, "button");
+        builder.AddAttribute(sequence++, "class", $"ability-tile grouped{(picked ? " picked" : string.Empty)}{(poolItem?.IsReplacement == true ? " replacement" : string.Empty)}{(ability.PickKind == DraftPickKind.UltimateAbility ? " ultimate" : string.Empty)}");
+        builder.AddAttribute(sequence++, "disabled", !canPick);
+        builder.AddAttribute(sequence++, "title", poolItem?.IsReplacement == true
+            ? $"{ability.DisplayName} | {ability.Key} | Replacement: {poolItem.ReplacementReason} | Source: {ability.SourceHeroName}"
+            : $"{ability.DisplayName} | {ability.Key} | {ability.SourceHeroName} {ability.SourceSlot}");
+        builder.AddAttribute(sequence++, "onclick", EventCallback.Factory.Create(this, () => Pick(ability.Key)));
+        if (!string.IsNullOrWhiteSpace(ability.IconDataUrl))
+        {
+            builder.OpenElement(sequence++, "img");
+            builder.AddAttribute(sequence++, "src", ability.IconDataUrl);
+            builder.AddAttribute(sequence++, "alt", ability.DisplayName);
+            builder.CloseElement();
+        }
+        else
+        {
+            builder.OpenElement(sequence++, "span");
+            builder.AddAttribute(sequence++, "class", "icon-placeholder");
+            builder.AddContent(sequence++, Initials(ability.DisplayName));
+            builder.CloseElement();
+        }
+        builder.OpenElement(sequence++, "small");
+        builder.AddContent(sequence++, ability.DisplayName);
+        builder.CloseElement();
+        builder.CloseElement();
+    };
+
+    private IEnumerable<(int Index, string Label, string? Key, bool IsUltimate)> AbilitySlots(DraftPlayerSlot player)
+    {
+        for (var i = 0; i < 3; i++)
+        {
+            yield return (i, (i + 1).ToString(), player.Loadout.RegularAbilities.ElementAtOrDefault(i), false);
+        }
+
+        yield return (3, "U", player.Loadout.Ultimate, true);
+    }
+
+    private static string MiniSlotClass(bool hasAbility, bool isUltimate, bool canDrag, bool canDrop, bool isDragging)
+    {
+        var classes = new List<string>
+        {
+            "mini-slot",
+            hasAbility ? "filled" : "empty",
+            isUltimate ? "ultimate" : "normal"
+        };
+
+        if (canDrag)
+        {
+            classes.Add("draggable");
+        }
+
+        if (canDrop)
+        {
+            classes.Add("drop-target");
+        }
+
+        if (!canDrag && !canDrop)
+        {
+            classes.Add("locked");
+        }
+
+        if (isDragging)
+        {
+            classes.Add("dragging");
+        }
+
+        return string.Join(' ', classes);
+    }
+
+    private void StartDraft()
+    {
+        if (CurrentRoom?.Clients.Any(client => !client.IsReady) == true)
+        {
+            ShowStartConfirmation = true;
+            Message = "Some players are not ready. Confirm to start anyway.";
+            return;
+        }
+
+        StartDraftCore();
+    }
+
+    private void ConfirmStartDraft()
+    {
+        ShowStartConfirmation = false;
+        StartDraftCore();
+    }
+
+    private void CancelStartConfirmation()
+    {
+        ShowStartConfirmation = false;
+        Message = string.Empty;
+    }
+
+    private void StartDraftCore()
+    {
+        Try(() =>
+        {
+            RoomService.StartDraft(Code, PlayerId ?? string.Empty);
+            if (CurrentRoom is not null)
+            {
+                Nav.NavigateTo($"/room/{CurrentRoom.Code}/draft?playerId={PlayerId}");
+            }
+        });
+    }
+
+    private void Pick(string key) => Try(() => RoomService.Pick(Code, PlayerId ?? string.Empty, key));
+
+    private async Task GenerateZip()
+    {
+        if (IsGeneratingFiles)
+        {
+            return;
+        }
+
+        try
+        {
+            IsGeneratingFiles = true;
+            Message = "Generating files...";
+            var packingStatus = DeadPackerService.GetStatus();
+            if (packingStatus.Enabled && !packingStatus.GameRootValid)
+            {
+                ShowGameRootModal = true;
+                GameRootPathInput = packingStatus.GameRootPath;
+                GameRootMissingItems = packingStatus.GameRootMissingItems;
+            }
+
+            await InvokeAsync(StateHasChanged);
+            await Task.Run(() => RoomService.GenerateZip(Code, PlayerId ?? string.Empty));
+            CurrentRoom = RoomService.GetRoom(Code);
+            Message = string.IsNullOrWhiteSpace(CurrentRoom?.PackingError)
+                ? "Generated files are ready."
+                : "Raw ZIP generated. VPK generation failed; see details below.";
+        }
+        catch (Exception ex)
+        {
+            Message = ex.Message;
+        }
+        finally
+        {
+            IsGeneratingFiles = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void SaveGameRootPath()
+    {
+        try
+        {
+            var status = DeadPackerService.SaveGameRootPath(GameRootPathInput);
+            GameRootMissingItems = status.GameRootMissingItems;
+            ShowGameRootModal = !status.GameRootValid;
+            Message = status.GameRootValid ? "Deadlock game folder saved. You can generate files again." : "Deadlock game folder is still invalid.";
+        }
+        catch (Exception ex)
+        {
+            var status = DeadPackerService.GetStatus();
+            GameRootMissingItems = status.GameRootMissingItems;
+            Message = ex.Message;
+        }
+    }
+
+    private async Task CopyInstructionText(string text)
+    {
+        try
+        {
+            var copied = await JS.InvokeAsync<bool>("deadlockAbilityDraft.copyText", text);
+            CopyMessage = copied ? "Copied." : "Copy failed. Select the text manually.";
+        }
+        catch
+        {
+            CopyMessage = "Copy failed. Select the text manually.";
+        }
+    }
+
+    private void ChangeTeam() => Try(() => RoomService.ChangeTeam(Code, PlayerId ?? string.Empty, SelectedLobbyTeam));
+    private void SaveLobbySettings() => Try(() => RoomService.UpdateRoomConfig(Code, PlayerId ?? string.Empty, new DraftRoomConfig
+    {
+        DraftMode = LobbyDraftMode,
+        AllowDuplicateAbilities = LobbyAllowDuplicates,
+        AllowEmptySlotsAsBots = LobbyAllowBots,
+        AllowHostOverridePicks = LobbyAllowOverride
+    }));
+    private void StartAbilityDrag(int slotNumber, int fromIndex)
+    {
+        DragSlotNumber = slotNumber;
+        DragFromIndex = fromIndex;
+    }
+
+    private void EndAbilityDrag()
+    {
+        DragSlotNumber = null;
+        DragFromIndex = null;
+    }
+
+    private void DropAbility(int slotNumber, int toIndex)
+    {
+        if (DragSlotNumber != slotNumber || DragFromIndex is null)
+        {
+            EndAbilityDrag();
+            return;
+        }
+
+        var fromIndex = DragFromIndex.Value;
+        EndAbilityDrag();
+        if (fromIndex == toIndex)
+        {
+            return;
+        }
+
+        Try(() => RoomService.ReorderRegularAbility(Code, PlayerId ?? string.Empty, slotNumber, fromIndex, toIndex));
+    }
+
+    private void ToggleReady() => Try(() =>
+    {
+        if (CurrentClient is null)
+        {
+            throw new InvalidOperationException("Join the room first.");
+        }
+
+        RoomService.SetReady(Code, PlayerId ?? string.Empty, !CurrentClient.IsReady);
+    });
+
+    private void Try(Action action)
+    {
+        try
+        {
+            Message = string.Empty;
+            action();
+        }
+        catch (Exception ex)
+        {
+            Message = ex.Message;
+        }
+    }
+
+    private string HeroName(string? key)
+    {
+        if (CurrentRoom is null || string.IsNullOrWhiteSpace(key))
+        {
+            return "No hero";
+        }
+
+        return CurrentRoom.DeadlockData.Heroes.FirstOrDefault(hero => hero.Key == key)?.DisplayName ?? key;
+    }
+
+    private string AbilityName(string? abilityKey)
+    {
+        if (CurrentRoom is null || string.IsNullOrWhiteSpace(abilityKey))
+        {
+            return "Empty";
+        }
+
+        return CurrentRoom.DeadlockData.Abilities.FirstOrDefault(ability => ability.Key == abilityKey)?.DisplayName ?? abilityKey;
+    }
+
+    private static string PickKindLabel(DraftPickKind kind) => kind switch
+    {
+        DraftPickKind.Hero => "Hero pick",
+        DraftPickKind.UltimateAbility => "Ultimate pick",
+        DraftPickKind.RegularAbility => "Standard pick",
+        DraftPickKind.Any => "Free pick",
+        _ => "Pick"
+    };
+
+    private static string PickKindShort(DraftPickKind kind) => kind switch
+    {
+        DraftPickKind.Hero => "H",
+        DraftPickKind.UltimateAbility => "U",
+        DraftPickKind.RegularAbility => "S",
+        DraftPickKind.Any => "F",
+        _ => "P"
+    };
+
+    private static string ModeLabel(DraftMode mode) => mode switch
+    {
+        DraftMode.FreePick => "FreePick",
+        DraftMode.Classic => "Classic",
+        DraftMode.RandomHero => "RandomHero",
+        _ => "Unknown"
+    };
+
+    private static string TeamName(DeadlockTeam team) => team switch
+    {
+        DeadlockTeam.HiddenKing => "The Hidden King",
+        DeadlockTeam.Archmother => "The Archmother",
+        _ => "Unknown"
+    };
+
+    private static string TeamTextClass(DeadlockTeam team) => $"team-text {TeamCssClass(team)}";
+
+    private static string TeamCssClass(DeadlockTeam team) => team switch
+    {
+        DeadlockTeam.HiddenKing => "hidden-king",
+        DeadlockTeam.Archmother => "archmother",
+        _ => "unknown-team"
+    };
+
+    private static string Initials(string value)
+    {
+        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length == 0)
+        {
+            return "?";
+        }
+
+        return string.Concat(parts.Take(2).Select(part => char.ToUpperInvariant(part[0])));
+    }
+
+    private void OnRoomChanged(string roomCode)
+    {
+        if (!string.Equals(roomCode, Code, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        _ = InvokeAsync(() =>
+        {
+            CurrentRoom = RoomService.GetRoom(Code);
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        RoomService.RoomChanged -= OnRoomChanged;
+    }
+
+    private sealed record HeroDraftGroup(HeroDefinition Hero, IReadOnlyList<DraftAbilityEntry> Abilities);
+    private sealed record DraftAbilityEntry(AbilityDefinition Ability, DraftAbilityPoolItem PoolItem);
+}

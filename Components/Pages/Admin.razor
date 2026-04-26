@@ -1,0 +1,517 @@
+@page "/admin"
+@rendermode InteractiveServer
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@using abilitydraft.Models
+@using abilitydraft.Services
+@using Microsoft.Extensions.Options
+@inject ServerDeadlockDataService DataService
+@inject DraftRoomService RoomService
+@inject DeadPackerService DeadPackerService
+@inject IOptions<DeadlockDataOptions> Options
+
+<PageTitle>Deadlock Data Admin</PageTitle>
+
+<main class="page-shell">
+    <section class="page-header">
+        <a href="/">Back</a>
+        <a class="logout-link" href="/admin/logout">Logout</a>
+        <p class="eyebrow">Admin</p>
+        <h1>Server data</h1>
+        <p>Reload Deadlock files, edit bans, regenerate icon naming lists, and set website-only display names.</p>
+    </section>
+
+    <section class="form-panel admin-wide">
+        <div class="server-status @(Snapshot.IsLoaded ? "ok" : "bad")">
+            <strong>@(Snapshot.IsLoaded ? "Loaded" : "Not loaded")</strong>
+            <span>@(Snapshot.Data?.Heroes.Count ?? 0) heroes - @(Snapshot.Data?.Abilities.Count ?? 0) abilities - loaded @Snapshot.LoadedUtc.ToLocalTime()</span>
+        </div>
+
+        <div class="path-grid">
+            <label>
+                <span>Game data path</span>
+                <code>@Options.Value.GameDataPath</code>
+            </label>
+            <label>
+                <span>Icons path</span>
+                <code>@Options.Value.IconsPath</code>
+            </label>
+            <label>
+                <span>Generated output path</span>
+                <code>@Options.Value.OutputPath</code>
+            </label>
+        </div>
+
+        <div class="admin-actions">
+            <button class="primary" @onclick="Reload">Reload Deadlock data</button>
+            <button @onclick="RegenerateAbilityList">Regenerate ability icon list</button>
+            <button @onclick="RegenerateHeroList">Regenerate hero icon list</button>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(Message))
+        {
+            <p class="message">@Message</p>
+        }
+
+        @if (Snapshot.Errors.Count > 0)
+        {
+            <div class="warnings compact">
+                <h2>Errors</h2>
+                @foreach (var error in Snapshot.Errors)
+                {
+                    <p>@error</p>
+                }
+            </div>
+        }
+
+        @if (Snapshot.Warnings.Count > 0)
+        {
+            <div class="warnings compact">
+                <h2>Warnings</h2>
+                @foreach (var warning in Snapshot.Warnings.Take(40))
+                {
+                    <p>@warning</p>
+                }
+            </div>
+        }
+    </section>
+
+    <section class="form-panel admin-wide">
+        <div class="admin-editor-header">
+            <div>
+                <p class="eyebrow">Packing</p>
+                <h2>DeadPacker status</h2>
+                <p>Paths come from <code>appsettings.json</code>. Normal players cannot change executable paths.</p>
+            </div>
+            <button @onclick="TestPackingTools">Test packing tools</button>
+        </div>
+
+        <div class="path-grid">
+            <label>
+                <span>DeadPacker</span>
+                <code>@PackingStatus.ExecutablePath</code>
+                <strong class="@(PackingStatus.Enabled && PackingStatus.ExecutableExists ? "ready-text" : "not-ready-text")">@(PackingStatus.Enabled ? PackingStatus.ExecutableExists ? "Found" : "Missing" : "Disabled")</strong>
+            </label>
+            <label>
+                <span>resourcecompiler.exe</span>
+                <code>@PackingStatus.ResourceCompilerPath</code>
+                <strong class="@(PackingStatus.ResourceCompilerExists ? "ready-text" : "not-ready-text")">@(PackingStatus.ResourceCompilerExists ? "Found" : "Missing")</strong>
+            </label>
+            <label>
+                <span>Deadlock game folder</span>
+                <code>@(string.IsNullOrWhiteSpace(PackingStatus.GameRootPath) ? "Not configured" : PackingStatus.GameRootPath)</code>
+                <strong class="@(PackingStatus.GameRootValid ? "ready-text" : "not-ready-text")">@(PackingStatus.GameRootValid ? "Valid" : PackingStatus.GameRootExists ? "Incomplete" : "Missing")</strong>
+            </label>
+            <label>
+                <span>Addon content directory</span>
+                <code>@PackingStatus.AddonContentDirectory</code>
+                <strong class="@(PackingStatus.AddonContentDirectoryExists ? "ready-text" : "not-ready-text")">@(PackingStatus.AddonContentDirectoryExists ? "Exists" : "Missing")</strong>
+            </label>
+            <label>
+                <span>Addon game directory</span>
+                <code>@PackingStatus.AddonGameDirectory</code>
+                <strong class="@(PackingStatus.AddonGameDirectoryExists ? "ready-text" : "not-ready-text")">@(PackingStatus.AddonGameDirectoryExists ? "Exists" : "Missing")</strong>
+            </label>
+            <label>
+                <span>Output directory</span>
+                <code>@PackingStatus.OutputDirectory</code>
+                <strong class="@(PackingStatus.OutputDirectoryExists ? "ready-text" : "not-ready-text")">@(PackingStatus.OutputDirectoryExists ? "Exists" : "Missing")</strong>
+            </label>
+        </div>
+
+        <div class="game-root-config">
+            <h3>Select Deadlock game folder</h3>
+            <p>Paste the <code>game</code> folder from your Reduced SDK or Deadlock install. For the current local setup this can be <code>..\Reduced_CSDK_12\game</code>.</p>
+            <div class="inline-form">
+                <input placeholder="C:\Program Files (x86)\Steam\steamapps\common\Deadlock\game" @bind="GameRootPathInput" @bind:event="oninput" />
+                <button class="primary" @onclick="SaveGameRootPath">Save game path</button>
+            </div>
+            @if (PackingStatus.GameRootMissingItems.Count > 0)
+            {
+                <div class="warnings compact">
+                    @foreach (var item in PackingStatus.GameRootMissingItems)
+                    {
+                        <p>Missing: @item</p>
+                    }
+                </div>
+            }
+        </div>
+
+        @if (PackingStatus.Diagnostics.Count > 0)
+        {
+            <div class="warnings compact">
+                <h2>Packing diagnostics</h2>
+                @foreach (var diagnostic in PackingStatus.Diagnostics)
+                {
+                    <article class="diagnostic-row @diagnostic.Severity.ToLowerInvariant()">
+                        <strong>@diagnostic.Severity: @diagnostic.Message</strong>
+                        @if (!string.IsNullOrWhiteSpace(diagnostic.Path))
+                        {
+                            <code>@diagnostic.Path</code>
+                        }
+                        <span>@diagnostic.Fix</span>
+                    </article>
+                }
+            </div>
+        }
+
+        @if (!string.IsNullOrWhiteSpace(PackingStatus.LastLogPath))
+        {
+            <div class="warnings compact">
+                <h2>Last packing log</h2>
+                <p><code>@PackingStatus.LastLogPath</code></p>
+                @if (!string.IsNullOrWhiteSpace(PackingStatus.LastLogPreview))
+                {
+                    <pre class="log-preview">@PackingStatus.LastLogPreview</pre>
+                }
+            </div>
+        }
+    </section>
+
+    @if (Snapshot.Data is not null)
+    {
+        <section class="admin-editor">
+            <div class="admin-editor-header">
+                <div>
+                    <p class="eyebrow">Ban editor</p>
+                    <h2>Draft bans</h2>
+                    <p>Saved to <code>Data/Deadlock/bans.json</code>. Direct ability unbans override hero bans when an ability should stay draftable.</p>
+                </div>
+                <button class="primary" @onclick="SaveBans">Save bans</button>
+            </div>
+
+            <div class="admin-two-columns">
+                <section>
+                    <label>
+                        <span>Search heroes</span>
+                        <input @bind="HeroBanSearch" @bind:event="oninput" />
+                    </label>
+                    <div class="admin-list">
+                        <Virtualize Items="@FilteredHeroes(HeroBanSearch).ToList()" Context="hero" ItemSize="68">
+                            <label class="admin-row">
+                                @Icon(hero.IconDataUrl, hero.DisplayName)
+                                <span>
+                                    <strong>@hero.DisplayName</strong>
+                                    <small>@hero.Key</small>
+                                </span>
+                                <input type="checkbox" checked="@BannedHeroes.Contains(hero.Key)" @onchange="value => SetHeroBan(hero.Key, value)" />
+                            </label>
+                        </Virtualize>
+                    </div>
+                </section>
+
+                <section>
+                    <label>
+                        <span>Search abilities</span>
+                        <input @bind="AbilityBanSearch" @bind:event="oninput" />
+                    </label>
+                    <label>
+                        <span>Ability filter</span>
+                        <select @bind="AbilityBanFilter">
+                            <option>All</option>
+                            <option>Unknown source abilities</option>
+                        </select>
+                    </label>
+                    <div class="admin-list">
+                        <Virtualize Items="@FilteredBanAbilities().ToList()" Context="ability" ItemSize="92">
+                            @{
+                                var directBan = BannedAbilities.Contains(ability.Key);
+                                var autoBan = IsAutoBanned(ability);
+                                var heroBan = BannedHeroes.Contains(ability.SourceHeroKey);
+                                var unbanned = UnbannedAbilities.Contains(ability.Key);
+                                var effectiveDirectBan = directBan && !unbanned;
+                                var effectiveAutoBan = autoBan && !unbanned && !effectiveDirectBan;
+                                var inherited = heroBan && !unbanned && !effectiveDirectBan && !effectiveAutoBan;
+                            }
+                            <label class="admin-row @(BanStateClass(effectiveDirectBan, effectiveAutoBan, inherited, unbanned))">
+                                @Icon(ability.IconDataUrl, ability.DisplayName)
+                                <span>
+                                    <strong>@ability.DisplayName</strong>
+                                    <small>@ability.Key</small>
+                                    <small>@(autoBan ? "Unknown" : ability.SourceHeroName)</small>
+                                    @if (unbanned)
+                                    {
+                                        <em class="unban-text">Unbanned override</em>
+                                    }
+                                    else if (effectiveDirectBan)
+                                    {
+                                        <em>Banned directly</em>
+                                    }
+                                    else if (effectiveAutoBan)
+                                    {
+                                        <em>Auto-banned: unknown source hero</em>
+                                    }
+                                    else if (inherited)
+                                    {
+                                        <em>Banned by hero</em>
+                                    }
+                                </span>
+                                <span class="ban-controls">
+                                    <span>
+                                        <input type="checkbox" checked="@directBan" @onchange="value => SetAbilityBan(ability.Key, value)" />
+                                        Ban
+                                    </span>
+                                    <span>
+                                        <input type="checkbox" checked="@unbanned" @onchange="value => SetAbilityUnban(ability.Key, value)" />
+                                        Unban
+                                    </span>
+                                </span>
+                            </label>
+                        </Virtualize>
+                    </div>
+                </section>
+            </div>
+        </section>
+
+        <section class="admin-editor">
+            <div class="admin-editor-header">
+                <div>
+                    <p class="eyebrow">Website names</p>
+                    <h2>Localisation overrides</h2>
+                    <p>Saved to <code>Data/Deadlock/site_localisation_overrides.json</code>. These names affect only this website UI.</p>
+                </div>
+                <button class="primary" @onclick="SaveOverrides">Save names</button>
+            </div>
+
+            <div class="admin-two-columns">
+                <section>
+                    <label>
+                        <span>Search heroes</span>
+                        <input @bind="HeroNameSearch" @bind:event="oninput" />
+                    </label>
+                    <div class="admin-list">
+                        <Virtualize Items="@FilteredHeroes(HeroNameSearch).ToList()" Context="hero" ItemSize="72">
+                            <label class="admin-row name-row">
+                                @Icon(hero.IconDataUrl, hero.DisplayName)
+                                <span>
+                                    <strong>@hero.DisplayName</strong>
+                                    <small>@hero.Key</small>
+                                </span>
+                                <input value="@OverrideValue(HeroOverrides, hero.Key)" placeholder="@hero.DisplayName" @oninput="value => SetOverride(HeroOverrides, hero.Key, value)" />
+                            </label>
+                        </Virtualize>
+                    </div>
+                </section>
+
+                <section>
+                    <label>
+                        <span>Search abilities</span>
+                        <input @bind="AbilityNameSearch" @bind:event="oninput" />
+                    </label>
+                    <div class="admin-list">
+                        <Virtualize Items="@FilteredAbilities(AbilityNameSearch).ToList()" Context="ability" ItemSize="86">
+                            <label class="admin-row name-row">
+                                @Icon(ability.IconDataUrl, ability.DisplayName)
+                                <span>
+                                    <strong>@ability.DisplayName</strong>
+                                    <small>@ability.Key</small>
+                                    <small>@ability.SourceHeroName</small>
+                                </span>
+                                <input value="@OverrideValue(AbilityOverrides, ability.Key)" placeholder="@ability.DisplayName" @oninput="value => SetOverride(AbilityOverrides, ability.Key, value)" />
+                            </label>
+                        </Virtualize>
+                    </div>
+                </section>
+            </div>
+        </section>
+    }
+</main>
+
+@code {
+    private DeadlockDataSnapshot Snapshot => DataService.Current;
+    private string Message = string.Empty;
+    private string HeroBanSearch = string.Empty;
+    private string AbilityBanSearch = string.Empty;
+    private string AbilityBanFilter = "All";
+    private string HeroNameSearch = string.Empty;
+    private string AbilityNameSearch = string.Empty;
+    private HashSet<string> BannedHeroes = new(StringComparer.Ordinal);
+    private HashSet<string> BannedAbilities = new(StringComparer.Ordinal);
+    private HashSet<string> UnbannedAbilities = new(StringComparer.Ordinal);
+    private Dictionary<string, string> HeroOverrides = new(StringComparer.Ordinal);
+    private Dictionary<string, string> AbilityOverrides = new(StringComparer.Ordinal);
+    private string GameRootPathInput = string.Empty;
+    private DeadPackerStatus PackingStatus => DeadPackerService.GetStatus();
+
+    protected override void OnInitialized()
+    {
+        LoadEditorState();
+    }
+
+    private void Reload()
+    {
+        var snapshot = DataService.Reload();
+        if (snapshot.Data is not null)
+        {
+            RoomService.RefreshDisplayData(snapshot.Data);
+        }
+
+        LoadEditorState();
+        Message = snapshot.IsLoaded ? "Deadlock data reloaded." : "Reload finished with errors.";
+    }
+
+    private void RegenerateAbilityList()
+    {
+        var path = DataService.GenerateAbilityIconList();
+        Message = $"Generated {path}";
+    }
+
+    private void RegenerateHeroList()
+    {
+        var path = DataService.GenerateHeroIconList();
+        Message = $"Generated {path}";
+    }
+
+    private void TestPackingTools()
+    {
+        var path = DeadPackerService.TestTools();
+        Message = $"Packing tool status written to {path}";
+    }
+
+    private void SaveGameRootPath()
+    {
+        try
+        {
+            DeadPackerService.SaveGameRootPath(GameRootPathInput);
+            Message = "Deadlock game folder saved.";
+        }
+        catch (Exception ex)
+        {
+            Message = ex.Message;
+        }
+    }
+
+    private void SaveBans()
+    {
+        var snapshot = DataService.SaveBans(BannedHeroes, BannedAbilities, UnbannedAbilities);
+        RoomService.MarkBansChanged();
+        LoadEditorState();
+        Message = snapshot.IsLoaded ? "Bans saved and data reloaded." : "Bans saved, but data reload reported errors.";
+    }
+
+    private void SaveOverrides()
+    {
+        var snapshot = DataService.SaveSiteLocalisationOverrides(new SiteLocalisationOverrides
+        {
+            Heroes = HeroOverrides,
+            Abilities = AbilityOverrides
+        });
+        if (snapshot.Data is not null)
+        {
+            RoomService.RefreshDisplayData(snapshot.Data);
+        }
+
+        LoadEditorState();
+        Message = snapshot.IsLoaded ? "Website display names saved and reloaded." : "Names saved, but data reload reported errors.";
+    }
+
+    private void LoadEditorState()
+    {
+        BannedHeroes = new HashSet<string>(Snapshot.Bans.BannedHeroes, StringComparer.Ordinal);
+        BannedAbilities = new HashSet<string>(Snapshot.Bans.BannedAbilities, StringComparer.Ordinal);
+        UnbannedAbilities = new HashSet<string>(Snapshot.Bans.UnbannedAbilities, StringComparer.Ordinal);
+        HeroOverrides = new Dictionary<string, string>(Snapshot.SiteLocalisationOverrides.Heroes, StringComparer.Ordinal);
+        AbilityOverrides = new Dictionary<string, string>(Snapshot.SiteLocalisationOverrides.Abilities, StringComparer.Ordinal);
+        GameRootPathInput = PackingStatus.GameRootPath;
+    }
+
+    private IEnumerable<HeroDefinition> FilteredHeroes(string search)
+    {
+        var heroes = Snapshot.Data?.Heroes ?? [];
+        return heroes
+            .Where(hero => Matches(search, hero.DisplayName, hero.Key))
+            .OrderBy(hero => hero.DisplayName, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private IEnumerable<AbilityDefinition> FilteredAbilities(string search)
+    {
+        var abilities = Snapshot.Data?.Abilities ?? [];
+        return abilities
+            .Where(ability => ability.PickKind is DraftPickKind.RegularAbility or DraftPickKind.UltimateAbility)
+            .Where(ability => Matches(search, ability.DisplayName, ability.Key, ability.SourceHeroName, ability.SourceHeroKey))
+            .OrderBy(ability => ability.SourceHeroName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(ability => ability.DisplayName, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private IEnumerable<AbilityDefinition> FilteredBanAbilities()
+    {
+        var abilities = FilteredAbilities(AbilityBanSearch);
+        if (AbilityBanFilter == "Unknown source abilities")
+        {
+            abilities = abilities.Where(IsAutoBanned);
+        }
+
+        return abilities;
+    }
+
+    private RenderFragment Icon(string? iconDataUrl, string label) => builder =>
+    {
+        if (!string.IsNullOrWhiteSpace(iconDataUrl))
+        {
+            builder.OpenElement(0, "img");
+            builder.AddAttribute(1, "class", "admin-icon");
+            builder.AddAttribute(2, "src", iconDataUrl);
+            builder.AddAttribute(3, "alt", label);
+            builder.CloseElement();
+        }
+        else
+        {
+            builder.OpenElement(4, "span");
+            builder.AddAttribute(5, "class", "admin-icon icon-placeholder");
+            builder.AddContent(6, "?");
+            builder.CloseElement();
+        }
+    };
+
+    private void SetHeroBan(string key, ChangeEventArgs value)
+    {
+        SetHash(BannedHeroes, key, value);
+    }
+
+    private void SetAbilityBan(string key, ChangeEventArgs value)
+    {
+        SetHash(BannedAbilities, key, value);
+    }
+
+    private void SetAbilityUnban(string key, ChangeEventArgs value)
+    {
+        SetHash(UnbannedAbilities, key, value);
+    }
+
+    private bool IsAutoBanned(AbilityDefinition ability) =>
+        DraftPoolGenerator.IsAbilityAutoBanned(ability, Snapshot.Data);
+
+    private static string BanStateClass(bool directBan, bool autoBan, bool inheritedBan, bool unbanned) =>
+        unbanned ? "unban-override" : directBan ? "direct-ban" : autoBan ? "auto-ban" : inheritedBan ? "inherited-ban" : string.Empty;
+
+    private static void SetHash(HashSet<string> values, string key, ChangeEventArgs value)
+    {
+        if (value.Value is bool isChecked && isChecked)
+        {
+            values.Add(key);
+        }
+        else
+        {
+            values.Remove(key);
+        }
+    }
+
+    private static string OverrideValue(Dictionary<string, string> values, string key) =>
+        values.TryGetValue(key, out var value) ? value : string.Empty;
+
+    private static void SetOverride(Dictionary<string, string> values, string key, ChangeEventArgs value)
+    {
+        var text = value.Value?.ToString()?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            values.Remove(key);
+        }
+        else
+        {
+            values[key] = text;
+        }
+    }
+
+    private static bool Matches(string search, params string?[] values) =>
+        string.IsNullOrWhiteSpace(search) ||
+        values.Any(value => !string.IsNullOrWhiteSpace(value) && value.Contains(search, StringComparison.OrdinalIgnoreCase));
+}

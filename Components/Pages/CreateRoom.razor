@@ -1,0 +1,107 @@
+@page "/create"
+@rendermode InteractiveServer
+@using abilitydraft.Models
+@using abilitydraft.Services
+@inject DraftRoomService RoomService
+@inject ServerDeadlockDataService DataService
+@inject NavigationManager Nav
+
+<PageTitle>Create Draft Room</PageTitle>
+
+<main class="page-shell">
+    <section class="page-header">
+        <a href="/">Back</a>
+        <p class="eyebrow">Create room</p>
+        <h1>Create Ability Draft</h1>
+        <p>Host a Deadlock draft room, invite players by code, and let the server build the pool from its configured game data.</p>
+    </section>
+
+    <section class="form-panel create-panel">
+        <div class="server-status @(Snapshot.IsLoaded ? "ok" : "bad")">
+            <strong>@(Snapshot.IsLoaded ? "Server data ready" : "Server data missing")</strong>
+            <span>@(Snapshot.Data?.Heroes.Count ?? 0) heroes - @(Snapshot.Data?.Abilities.Count ?? 0) abilities - @Snapshot.Bans.BannedHeroes.Count banned heroes - @Snapshot.Bans.BannedAbilities.Count banned abilities</span>
+        </div>
+        @if (Snapshot.Errors.Count > 0)
+        {
+            <div class="warnings compact">
+                @foreach (var error in Snapshot.Errors)
+                {
+                    <p>@error</p>
+                }
+            </div>
+        }
+
+        <label>
+            <span>Room name</span>
+            <input @bind="RoomName" />
+        </label>
+        <label>
+            <span>Your name</span>
+            <input @bind="HostName" />
+        </label>
+        <label>
+            <span>Your team</span>
+            <select @bind="SelectedTeam">
+                <option value="@DeadlockTeam.HiddenKing">The Hidden King</option>
+                <option value="@DeadlockTeam.Archmother">The Archmother</option>
+            </select>
+        </label>
+        <label>
+            <span>Draft mode</span>
+            <select @bind="SelectedDraftMode">
+                <option value="@DraftMode.FreePick">FreePick: heroes, abilities, and ultimates in any order</option>
+                <option value="@DraftMode.Classic">Classic: heroes first, then abilities</option>
+                <option value="@DraftMode.RandomHero">RandomHero: heroes assigned, abilities drafted</option>
+            </select>
+        </label>
+        <label class="toggle">
+            <input type="checkbox" @bind="AllowDuplicates" />
+            <span>Allow duplicate ability picks</span>
+        </label>
+        <label class="toggle">
+            <input type="checkbox" @bind="AllowBots" />
+            <span>Allow empty slots as bots</span>
+        </label>
+        <label class="toggle">
+            <input type="checkbox" @bind="AllowHostOverride" />
+            <span>Allow host override picks/reorder for human slots</span>
+        </label>
+        <button class="primary" disabled="@(!Snapshot.IsLoaded)" @onclick="Create">Create room</button>
+        @if (!string.IsNullOrWhiteSpace(Message))
+        {
+            <p class="message">@Message</p>
+        }
+    </section>
+    <SiteFooter />
+</main>
+
+@code {
+    private string RoomName = "Deadlock Ability Draft";
+    private string HostName = string.Empty;
+    private DeadlockTeam SelectedTeam = DeadlockTeam.HiddenKing;
+    private DraftMode SelectedDraftMode = DraftMode.FreePick;
+    private bool AllowDuplicates;
+    private bool AllowBots;
+    private bool AllowHostOverride;
+    private string Message = string.Empty;
+    private DeadlockDataSnapshot Snapshot => DataService.Current;
+
+    private void Create()
+    {
+        try
+        {
+            var result = RoomService.CreateRoom(RoomName, HostName, SelectedTeam, new DraftRoomConfig
+            {
+                DraftMode = SelectedDraftMode,
+                AllowDuplicateAbilities = AllowDuplicates,
+                AllowEmptySlotsAsBots = AllowBots,
+                AllowHostOverridePicks = AllowHostOverride
+            });
+            Nav.NavigateTo($"/room/{result.RoomCode}/lobby?playerId={result.PlayerId}");
+        }
+        catch (Exception ex)
+        {
+            Message = ex.Message;
+        }
+    }
+}

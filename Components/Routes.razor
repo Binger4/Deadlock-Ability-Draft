@@ -1,0 +1,22 @@
+<CascadingAuthenticationState>
+    <Router AppAssembly="typeof(Program).Assembly" NotFoundPage="typeof(Pages.NotFound)">
+        <Found Context="routeData">
+            <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)">
+                <NotAuthorized>
+                    <LayoutView Layout="typeof(Layout.MainLayout)">
+                        <main class="page-shell">
+                            <section class="page-header">
+                                <a href="/">Back</a>
+                                <p class="eyebrow">Admin login required</p>
+                                <h1>Sign in to continue</h1>
+                                <p>Admin pages require the configured server username and password.</p>
+                                <a class="primary-link" href="/admin/login">Admin login</a>
+                            </section>
+                        </main>
+                    </LayoutView>
+                </NotAuthorized>
+            </AuthorizeRouteView>
+            <FocusOnNavigate RouteData="routeData" Selector="main" />
+        </Found>
+    </Router>
+</CascadingAuthenticationState>

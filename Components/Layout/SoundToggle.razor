@@ -1,0 +1,47 @@
+@rendermode InteractiveServer
+@inject IJSRuntime JS
+
+<button class="sound-toggle" type="button" title="@Title" aria-label="@Title" @onclick="ToggleMuted">
+    <img src="@IconPath" alt="" />
+</button>
+
+@code {
+    private bool IsMuted;
+    private bool IsReady;
+    private string Title => IsMuted ? "Unmute site sounds" : "Mute site sounds";
+    private string IconPath => IsMuted ? "/icons/sound-off.svg" : "/icons/sound-on.svg";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        try
+        {
+            IsMuted = await JS.InvokeAsync<bool>("deadlockAbilityDraft.getSoundMuted");
+            IsReady = true;
+            await InvokeAsync(StateHasChanged);
+        }
+        catch
+        {
+            IsReady = true;
+        }
+    }
+
+    private async Task ToggleMuted()
+    {
+        IsMuted = !IsMuted;
+        if (IsReady)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("deadlockAbilityDraft.setSoundMuted", IsMuted);
+            }
+            catch
+            {
+            }
+        }
+    }
+}

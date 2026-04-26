@@ -1,0 +1,28 @@
+# Build output
+bin/
+obj/
+.vs/
+
+# Local ASP.NET/DataProtection keys
+App_Data/
+
+# Local SDK/tool install. DeadPacker can stay in the repo.
+Tools/Reduced_CSDK_12/
+
+# Generated room output and temporary packing workspace
+Data/Generated/**
+!Data/Generated/
+!Data/Generated/.gitkeep
+Data/Packing/**
+!Data/Packing/
+!Data/Packing/.gitkeep
+
+# Local logs / generated packing artifacts that may be created in older paths
+*.log
+*.vpk
+deadpacker_*.toml
+
+# Local config. Commit appsettings.example.json, not real appsettings files.
+appsettings.json
+appsettings.*.json
+!appsettings.example.json

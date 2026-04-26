@@ -1,0 +1,72 @@
+@page "/join"
+@page "/join/{InitialCode}"
+@rendermode InteractiveServer
+@using abilitydraft.Models
+@using abilitydraft.Services
+@inject DraftRoomService RoomService
+@inject NavigationManager Nav
+
+<PageTitle>Join Draft Room</PageTitle>
+
+<main class="page-shell">
+    <section class="page-header">
+        <a href="/">Back</a>
+        <p class="eyebrow">Join room</p>
+        <h1>Enter a room code</h1>
+        <p>Join an open lobby by code. Draft state is stored on the server and updates for everyone connected to the room.</p>
+    </section>
+
+    <section class="form-panel narrow">
+        <label>
+            <span>Room code</span>
+            <input @bind="RoomCode" />
+        </label>
+        <label>
+            <span>Your name</span>
+            <input @bind="PlayerName" />
+        </label>
+        <label>
+            <span>Your team</span>
+            <select @bind="SelectedTeam">
+                <option value="@DeadlockTeam.HiddenKing">The Hidden King</option>
+                <option value="@DeadlockTeam.Archmother">The Archmother</option>
+            </select>
+        </label>
+        <button class="primary" @onclick="Join">Join room</button>
+        @if (!string.IsNullOrWhiteSpace(Message))
+        {
+            <p class="message">@Message</p>
+        }
+    </section>
+    <SiteFooter />
+</main>
+
+@code {
+    [Parameter] public string? InitialCode { get; set; }
+
+    private string RoomCode = string.Empty;
+    private string PlayerName = string.Empty;
+    private DeadlockTeam SelectedTeam = DeadlockTeam.HiddenKing;
+    private string Message = string.Empty;
+
+    protected override void OnParametersSet()
+    {
+        if (!string.IsNullOrWhiteSpace(InitialCode) && string.IsNullOrWhiteSpace(RoomCode))
+        {
+            RoomCode = InitialCode;
+        }
+    }
+
+    private void Join()
+    {
+        try
+        {
+            var result = RoomService.JoinRoom(RoomCode, PlayerName, SelectedTeam);
+            Nav.NavigateTo($"/room/{result.RoomCode}/lobby?playerId={result.PlayerId}");
+        }
+        catch (Exception ex)
+        {
+            Message = ex.Message;
+        }
+    }
+}

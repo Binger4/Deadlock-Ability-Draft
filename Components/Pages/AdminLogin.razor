@@ -1,0 +1,46 @@
+@page "/admin/login"
+@rendermode InteractiveServer
+
+<PageTitle>Admin Login</PageTitle>
+
+<main class="page-shell">
+    <section class="page-header">
+        <a href="/">Back</a>
+        <p class="eyebrow">Admin</p>
+        <h1>Admin login</h1>
+        <p>Use the configured server credentials to reload data, regenerate icon lists, and manage server-only settings.</p>
+    </section>
+
+    <section class="form-panel narrow">
+        <form method="post" action="/admin/login-submit" class="login-form">
+            <input type="hidden" name="returnUrl" value="@SafeReturnUrl" />
+            <label>
+                <span>Username</span>
+                <input name="username" autocomplete="username" />
+            </label>
+            <label>
+                <span>Password</span>
+                <input name="password" type="password" autocomplete="current-password" />
+            </label>
+            <button class="primary" type="submit">Login</button>
+        </form>
+
+        @if (Failed == "1")
+        {
+            <p class="message danger-message">Invalid admin username or password.</p>
+        }
+    </section>
+</main>
+
+@code {
+    [SupplyParameterFromQuery] public string? Failed { get; set; }
+    [SupplyParameterFromQuery] public string? ReturnUrl { get; set; }
+
+    private string SafeReturnUrl =>
+        !string.IsNullOrWhiteSpace(ReturnUrl) &&
+        ReturnUrl.StartsWith("/", StringComparison.Ordinal) &&
+        !ReturnUrl.StartsWith("//", StringComparison.Ordinal) &&
+        !ReturnUrl.StartsWith("/\\", StringComparison.Ordinal)
+            ? ReturnUrl
+            : "/admin";
+}
