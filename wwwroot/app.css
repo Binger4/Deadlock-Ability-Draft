@@ -276,6 +276,32 @@ h3 {
     padding-block: 1rem;
 }
 
+.room-share-row {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    flex-wrap: wrap;
+}
+
+.copy-chip {
+    min-height: 30px;
+    padding: .28rem .55rem;
+    border-color: rgba(211, 173, 85, .25);
+    background: rgba(0, 0, 0, .28);
+    color: var(--muted);
+    font-size: .88rem;
+}
+
+.copy-chip:hover {
+    color: var(--text);
+    border-color: var(--gold);
+}
+
+.room-share-row small {
+    color: var(--gold);
+    font-weight: 800;
+}
+
 .page-header {
     min-height: 220px;
     display: grid;
@@ -784,6 +810,27 @@ h3 {
     color: var(--gold);
 }
 
+.kick-button,
+.danger-action {
+    min-height: 30px;
+    width: fit-content;
+    padding: .32rem .56rem;
+    border-color: rgba(240, 123, 104, .45);
+    background: rgba(82, 22, 17, .42);
+    color: #ffd1c8;
+    font-size: .78rem;
+    font-weight: 800;
+}
+
+.kick-button:hover,
+.danger-action:hover {
+    border-color: var(--danger);
+}
+
+.compact-kick {
+    justify-self: start;
+}
+
 .lobby-actions,
 .host-settings,
 .confirm-box {
@@ -911,6 +958,7 @@ h3 {
 }
 
 .hero-portrait {
+    position: relative;
     width: 78px;
     min-height: 96px;
     border-radius: 8px;
@@ -919,6 +967,26 @@ h3 {
     display: grid;
     place-items: center;
     overflow: hidden;
+}
+
+.hero-portrait.disconnected > img:not(.disconnect-overlay),
+.hero-portrait.disconnected > span {
+    filter: grayscale(1) brightness(.42);
+}
+
+.disconnect-overlay {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 56px !important;
+    height: 56px !important;
+    transform: translate(-50%, -50%);
+    object-fit: contain;
+    padding: .32rem;
+    border: 1px solid rgba(255, 255, 255, .32);
+    border-radius: 999px;
+    background: rgba(0, 0, 0, .78);
+    box-shadow: 0 0 22px rgba(0, 0, 0, .7);
 }
 
 .hero-portrait img,

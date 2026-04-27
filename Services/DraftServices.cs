@@ -368,10 +368,13 @@ public sealed class DraftRoomService(
     AbilityAssignmentService abilityAssignmentService,
     ModFileGenerator modFileGenerator,
     ZipExportService zipExportService,
-    DeadPackerService deadPackerService)
+    DeadPackerService deadPackerService,
+    IOptions<DraftTimingOptions> timingOptions)
 {
     private readonly ConcurrentDictionary<string, DraftRoom> _rooms = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, Timer> _roomTimers = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, string> _playerNotices = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, string> _roomNotices = new(StringComparer.OrdinalIgnoreCase);
 
     public event Action<string>? RoomChanged;
 
@@ -382,6 +385,18 @@ public sealed class DraftRoomService(
     private const string AutoPickSound = "/sounds/auto-pick.mp3";
 
     public DraftRoom? GetRoom(string code) => _rooms.TryGetValue(NormalizeCode(code), out var room) ? room : null;
+
+    public string? GetNotice(string code, string? playerId)
+    {
+        var normalizedCode = NormalizeCode(code);
+        if (!string.IsNullOrWhiteSpace(playerId) &&
+            _playerNotices.TryGetValue($"{normalizedCode}:{playerId}", out var playerNotice))
+        {
+            return playerNotice;
+        }
+
+        return _roomNotices.TryGetValue(normalizedCode, out var roomNotice) ? roomNotice : null;
+    }
 
     public int CleanupExpiredRooms(TimeSpan maxAge)
     {
@@ -422,6 +437,7 @@ public sealed class DraftRoomService(
         }
 
         var code = GenerateRoomCode();
+        var defaultTiming = timingOptions.Value;
         var room = new DraftRoom
         {
             Code = code,
@@ -434,8 +450,8 @@ public sealed class DraftRoomService(
                 AllowDuplicateAbilities = config.AllowDuplicateAbilities,
                 AllowEmptySlotsAsBots = config.AllowEmptySlotsAsBots,
                 AllowHostOverridePicks = config.AllowHostOverridePicks,
-                PreparationSeconds = Math.Max(1, config.PreparationSeconds),
-                PickSeconds = Math.Max(1, config.PickSeconds)
+                PreparationSeconds = PositiveOrDefault(config.PreparationSeconds, defaultTiming.PreparationSeconds, 30),
+                PickSeconds = PositiveOrDefault(config.PickSeconds, defaultTiming.PickSeconds, 10)
             }
         };
 
@@ -505,8 +521,8 @@ public sealed class DraftRoomService(
             room.Config.AllowDuplicateAbilities = config.AllowDuplicateAbilities;
             room.Config.AllowEmptySlotsAsBots = config.AllowEmptySlotsAsBots;
             room.Config.AllowHostOverridePicks = config.AllowHostOverridePicks;
-            room.Config.PreparationSeconds = Math.Max(1, config.PreparationSeconds);
-            room.Config.PickSeconds = Math.Max(1, config.PickSeconds);
+            room.Config.PreparationSeconds = PositiveOrDefault(config.PreparationSeconds, room.Config.PreparationSeconds, timingOptions.Value.PreparationSeconds, 30);
+            room.Config.PickSeconds = PositiveOrDefault(config.PickSeconds, room.Config.PickSeconds, timingOptions.Value.PickSeconds, 10);
         }
 
         Notify(room.Code);
@@ -532,6 +548,163 @@ public sealed class DraftRoomService(
         }
 
         Notify(room.Code);
+    }
+
+    public void KickPlayer(string code, string hostPlayerId, string targetPlayerId)
+    {
+        var room = GetRequiredRoom(code);
+        var notifyCode = room.Code;
+        lock (room)
+        {
+            EnsureHost(room, hostPlayerId);
+            if (string.Equals(hostPlayerId, targetPlayerId, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("The host cannot kick themselves.");
+            }
+
+            var client = room.Clients.FirstOrDefault(item => item.PlayerId == targetPlayerId)
+                         ?? throw new InvalidOperationException("Player is no longer in this room.");
+
+            RemoveClientFromRoom(room, client, "You were removed from the draft by the host.", wasKicked: true);
+        }
+
+        Notify(notifyCode);
+    }
+
+    public void CancelDraft(string code, string hostPlayerId)
+    {
+        var normalizedCode = NormalizeCode(code);
+        var room = GetRequiredRoom(normalizedCode);
+        lock (room)
+        {
+            EnsureHost(room, hostPlayerId);
+            if (room.Status != DraftRoomStatus.Lobby)
+            {
+                throw new InvalidOperationException("The draft can only be cancelled before it starts.");
+            }
+
+            _roomNotices[room.Code] = "The draft was cancelled by the host.";
+            foreach (var client in room.Clients)
+            {
+                _playerNotices[$"{room.Code}:{client.PlayerId}"] = "The draft was cancelled by the host.";
+            }
+        }
+
+        _rooms.TryRemove(normalizedCode, out _);
+        StopRoomTimer(normalizedCode);
+        try
+        {
+            deadPackerService.DeleteRoomCache(normalizedCode);
+        }
+        catch
+        {
+        }
+        Notify(normalizedCode);
+    }
+
+    public void MarkPlayerConnected(string code, string? playerId)
+    {
+        if (string.IsNullOrWhiteSpace(playerId))
+        {
+            return;
+        }
+
+        var room = GetRoom(code);
+        if (room is null)
+        {
+            return;
+        }
+
+        var changed = false;
+        lock (room)
+        {
+            var client = room.Clients.FirstOrDefault(item => item.PlayerId == playerId);
+            if (client is null)
+            {
+                return;
+            }
+
+            client.LastSeenUtc = DateTime.UtcNow;
+            if (!client.IsConnected)
+            {
+                client.IsConnected = true;
+                changed = true;
+            }
+
+            if (client.SlotNumber is not null)
+            {
+                var slot = room.Players.FirstOrDefault(item => item.SlotNumber == client.SlotNumber);
+                if (slot is not null)
+                {
+                    slot.LastSeenUtc = DateTime.UtcNow;
+                    if (slot.IsDisconnected)
+                    {
+                        slot.IsDisconnected = false;
+                        changed = true;
+                    }
+                }
+            }
+        }
+
+        if (changed)
+        {
+            Notify(room.Code);
+        }
+    }
+
+    public void MarkPlayerDisconnected(string code, string? playerId)
+    {
+        if (string.IsNullOrWhiteSpace(playerId))
+        {
+            return;
+        }
+
+        var room = GetRoom(code);
+        if (room is null)
+        {
+            return;
+        }
+
+        var shouldNotify = false;
+        lock (room)
+        {
+            var client = room.Clients.FirstOrDefault(item => item.PlayerId == playerId);
+            if (client is null)
+            {
+                return;
+            }
+
+            if (room.Status == DraftRoomStatus.Lobby)
+            {
+                RemoveClientFromRoom(room, client, null, wasKicked: false);
+                shouldNotify = true;
+            }
+            else
+            {
+                client.IsConnected = false;
+                if (client.SlotNumber is not null)
+                {
+                    var slot = room.Players.FirstOrDefault(item => item.SlotNumber == client.SlotNumber);
+                    if (slot is not null)
+                    {
+                        slot.IsDisconnected = true;
+                        slot.LastSeenUtc = null;
+                        shouldNotify = true;
+                        if (room.Status == DraftRoomStatus.Drafting &&
+                            room.TimerPhase == DraftTimerPhase.Picking &&
+                            room.CurrentTurn?.SlotNumber == slot.SlotNumber)
+                        {
+                            AutoPick(room);
+                        }
+                    }
+                }
+            }
+        }
+
+        if (shouldNotify)
+        {
+            Notify(room.Code);
+        }
     }
 
     public void StartDraft(string code, string playerId)
@@ -944,6 +1117,12 @@ public sealed class DraftRoomService(
         room.TimerPhase = DraftTimerPhase.Picking;
         room.TimerEndsUtc = DateTime.UtcNow.AddSeconds(room.Config.PickSeconds);
         room.TimerWarningTurnIndex = null;
+        if (CurrentTurnIsDisconnected(room))
+        {
+            AutoPick(room);
+            return;
+        }
+
         if (playTurnSound)
         {
             AddSound(room, DraftSoundScope.CurrentPlayer, TurnStartSound, CurrentTurnPlayerId(room));
@@ -1013,6 +1192,25 @@ public sealed class DraftRoomService(
         return turn is null
             ? null
             : room.Players.FirstOrDefault(player => player.SlotNumber == turn.SlotNumber)?.PlayerId;
+    }
+
+    private static bool CurrentTurnIsDisconnected(DraftRoom room)
+    {
+        var turn = room.CurrentTurn;
+        if (turn is null)
+        {
+            return false;
+        }
+
+        var slot = room.Players.FirstOrDefault(player => player.SlotNumber == turn.SlotNumber);
+        if (slot is null || slot.IsBot)
+        {
+            return false;
+        }
+
+        return slot.IsDisconnected ||
+               (!string.IsNullOrWhiteSpace(slot.PlayerId) &&
+                !room.Clients.Any(client => client.PlayerId == slot.PlayerId && client.IsConnected));
     }
 
     private static void AddSound(DraftRoom room, DraftSoundScope scope, string soundPath, string? targetPlayerId = null)
@@ -1111,6 +1309,7 @@ public sealed class DraftRoomService(
                 slot.DisplayName = client.DisplayName;
                 slot.IsHost = client.IsHost;
                 slot.IsReady = client.IsReady;
+                slot.IsDisconnected = !client.IsConnected;
                 slot.LastSeenUtc = DateTime.UtcNow;
             }
             else
@@ -1146,6 +1345,47 @@ public sealed class DraftRoomService(
         };
         room.Clients.Add(client);
         return new JoinRoomResult(room.Code, client.PlayerId, null);
+    }
+
+    private void RemoveClientFromRoom(DraftRoom room, DraftClientSession client, string? notice, bool wasKicked)
+    {
+        if (!string.IsNullOrWhiteSpace(notice))
+        {
+            _playerNotices[$"{room.Code}:{client.PlayerId}"] = notice;
+        }
+
+        room.Clients.Remove(client);
+        if (client.SlotNumber is not null)
+        {
+            var slot = room.Players.FirstOrDefault(item => item.SlotNumber == client.SlotNumber);
+            if (slot is not null)
+            {
+                if (room.Status == DraftRoomStatus.Lobby)
+                {
+                    slot.PlayerId = null;
+                    slot.DisplayName = string.Empty;
+                    slot.IsHost = false;
+                    slot.IsReady = false;
+                    slot.LastSeenUtc = null;
+                    slot.IsDisconnected = false;
+                }
+                else
+                {
+                    slot.IsDisconnected = true;
+                    slot.LastSeenUtc = null;
+                }
+            }
+        }
+
+        client.IsConnected = false;
+        client.SlotNumber = null;
+        if (wasKicked &&
+            room.Status == DraftRoomStatus.Drafting &&
+            room.TimerPhase == DraftTimerPhase.Picking &&
+            CurrentTurnIsDisconnected(room))
+        {
+            AutoPick(room);
+        }
     }
 
     private static string TeamName(DeadlockTeam team) => team switch
@@ -1188,18 +1428,23 @@ public sealed class DraftRoomService(
 
     private static bool CanPickForSlot(DraftRoom room, DraftPlayerSlot slot, string playerId)
     {
-        if (slot.PlayerId == playerId)
+        var client = room.Clients.FirstOrDefault(player => player.PlayerId == playerId);
+        if (client is null || !client.IsConnected)
+        {
+            return false;
+        }
+
+        if (slot.PlayerId == playerId && !slot.IsDisconnected)
         {
             return true;
         }
 
-        var isHost = room.Clients.Any(player => player.PlayerId == playerId && player.IsHost);
-        if (isHost && slot.IsBot)
+        if (client.IsHost && slot.IsBot)
         {
             return true;
         }
 
-        return isHost && room.Config.AllowHostOverridePicks;
+        return client.IsHost && room.Config.AllowHostOverridePicks;
     }
 
     private static bool CanReorderForSlot(DraftRoom room, DraftPlayerSlot slot, string playerId) =>
@@ -1242,6 +1487,19 @@ public sealed class DraftRoomService(
     }
 
     private static string NormalizeCode(string code) => code.Trim().ToUpperInvariant();
+
+    private static int PositiveOrDefault(params int[] values)
+    {
+        foreach (var value in values)
+        {
+            if (value > 0)
+            {
+                return value;
+            }
+        }
+
+        return 1;
+    }
 
     private string GenerateRoomCode()
     {
@@ -2462,6 +2720,14 @@ public sealed class DeadPackerService(IOptions<DeadPackerOptions> options, IWebH
         return deleted;
     }
 
+    public void DeleteRoomCache(string roomCode)
+    {
+        var config = GetEffectiveOptions();
+        var safeRoomCode = SafeToken(roomCode);
+        DeleteDirectoryIfExists(GeneratedRoomDirectory(config, safeRoomCode));
+        DeleteDirectoryIfExists(PackingRoomDirectory(safeRoomCode));
+    }
+
     private string Resolve(string path) =>
         Path.IsPathRooted(path) ? Path.GetFullPath(path) : Path.GetFullPath(Path.Combine(environment.ContentRootPath, path));
 
@@ -2474,6 +2740,16 @@ public sealed class DeadPackerService(IOptions<DeadPackerOptions> options, IWebH
 
     private string PackingRoomDirectory(string safeRoomCode) =>
         Path.Combine(environment.ContentRootPath, "Data", "Packing", "Rooms", safeRoomCode);
+
+    private static void DeleteDirectoryIfExists(string path)
+    {
+        if (!Directory.Exists(path))
+        {
+            return;
+        }
+
+        Directory.Delete(path, recursive: true);
+    }
 
     private static int DeleteOldFiles(string directory, string pattern, DateTime cutoffUtc)
     {

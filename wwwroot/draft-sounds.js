@@ -53,3 +53,28 @@ window.deadlockAbilityDraft.copyText = async (text) => {
         return false;
     }
 };
+
+window.deadlockAbilityDraft.registerRoomPresence = (roomCode, playerId) => {
+    if (!roomCode || !playerId || window.deadlockAbilityDraft.presenceRegistered === `${roomCode}:${playerId}`) {
+        return;
+    }
+
+    window.deadlockAbilityDraft.presenceRegistered = `${roomCode}:${playerId}`;
+    window.addEventListener("pagehide", () => {
+        const payload = JSON.stringify({ roomCode, playerId });
+        try {
+            if (navigator.sendBeacon) {
+                navigator.sendBeacon("/room-presence/disconnect", new Blob([payload], { type: "application/json" }));
+                return;
+            }
+
+            fetch("/room-presence/disconnect", {
+                method: "POST",
+                body: payload,
+                headers: { "content-type": "application/json" },
+                keepalive: true
+            }).catch(() => { });
+        } catch {
+        }
+    }, { once: true });
+};

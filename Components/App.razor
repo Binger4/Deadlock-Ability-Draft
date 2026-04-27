@@ -1,4 +1,6 @@
-﻿<!DOCTYPE html>
+@inject NavigationManager Nav
+
+<!DOCTYPE html>
 <html lang="en">
 
 <head>
@@ -11,6 +13,15 @@
     <link rel="stylesheet" href="@Assets["abilitydraft.styles.css"]" />
     <ImportMap />
     <link rel="icon" type="image/png" href="favicon.png" />
+    <meta property="og:title" content="Deadlock Ability Draft" />
+    <meta property="og:description" content="Create Deadlock draft rooms, draft heroes and abilities with friends, and export VPK files for custom Deadlock games." />
+    <meta property="og:image" content="@PreviewImageUrl" />
+    <meta property="og:url" content="@SiteUrl" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Deadlock Ability Draft" />
+    <meta name="twitter:description" content="Create Deadlock draft rooms, draft heroes and abilities with friends, and export VPK files for custom Deadlock games." />
+    <meta name="twitter:image" content="@PreviewImageUrl" />
     <HeadOutlet />
 </head>
 
@@ -22,3 +33,8 @@
 </body>
 
 </html>
+
+@code {
+    private string SiteUrl => Nav.BaseUri.TrimEnd('/');
+    private string PreviewImageUrl => new Uri(new Uri(Nav.BaseUri), "site-preview.png").AbsoluteUri;
+}

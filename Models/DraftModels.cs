@@ -33,6 +33,12 @@ public sealed class GeneratedFilesOptions
     public bool CleanupOnStartup { get; set; } = true;
 }
 
+public sealed class DraftTimingOptions
+{
+    public int PreparationSeconds { get; set; }
+    public int PickSeconds { get; set; }
+}
+
 public sealed class DeadPackerServerSettings
 {
     public string GameRootPath { get; set; } = string.Empty;
@@ -191,8 +197,8 @@ public sealed class DraftRoomConfig
     public bool AllowDuplicateAbilities { get; set; }
     public bool AllowEmptySlotsAsBots { get; set; }
     public bool AllowHostOverridePicks { get; set; }
-    public int PreparationSeconds { get; set; } = 30;
-    public int PickSeconds { get; set; } = 10;
+    public int PreparationSeconds { get; set; }
+    public int PickSeconds { get; set; }
     public int HeroPoolSize { get; set; } = 12;
     public int RegularAbilityPicksPerPlayer { get; set; } = 3;
     public int UltimatePicksPerPlayer { get; set; } = 1;
@@ -205,6 +211,7 @@ public sealed class DraftClientSession
     public bool IsHost { get; set; }
     public DeadlockTeam Team { get; set; } = DeadlockTeam.HiddenKing;
     public bool IsReady { get; set; } = true;
+    public bool IsConnected { get; set; } = true;
     public int? SlotNumber { get; set; }
     public DateTime LastSeenUtc { get; set; } = DateTime.UtcNow;
 }
@@ -218,6 +225,7 @@ public sealed class DraftPlayerSlot
     public bool IsHost { get; set; }
     public bool IsBot { get; set; }
     public bool IsReady { get; set; }
+    public bool IsDisconnected { get; set; }
     public DateTime? LastSeenUtc { get; set; }
     public string? HeroKey { get; set; }
     public AbilityLoadout Loadout { get; init; } = new();

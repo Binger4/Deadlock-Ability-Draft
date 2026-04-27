@@ -9,9 +9,24 @@
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 
-<PageTitle>Draft Room @Code</PageTitle>
+<PageTitle>Deadlock Ability Draft Room</PageTitle>
 
-@if (CurrentRoom is null)
+@if (!string.IsNullOrWhiteSpace(RoomNotice))
+{
+    <main class="page-shell">
+        <section class="page-header">
+            <a href="/">Home</a>
+            <p class="eyebrow">Room closed</p>
+            <h1>@RoomNotice</h1>
+            <p>You can create a new draft or join another room.</p>
+            <div class="home-actions">
+                <a class="primary-link" href="/create">Create room</a>
+                <a class="secondary-link" href="/join">Join room</a>
+            </div>
+        </section>
+    </main>
+}
+else if (CurrentRoom is null)
 {
     <main class="page-shell">
         <section class="page-header">
@@ -30,7 +45,18 @@ else
                 <a href="/">Home</a>
                 <p class="eyebrow">@CurrentRoom.Status</p>
                 <h1>@CurrentRoom.Name</h1>
-                <p>Room <code>@CurrentRoom.Code</code> - share <code>/join/@CurrentRoom.Code</code></p>
+                <div class="room-share-row">
+                    <button class="copy-chip" title="Copy hidden lobby code" @onclick="CopyRoomCode">
+                        Room <code>@MaskedRoomCode</code>
+                    </button>
+                    <button class="copy-chip" title="Copy invite link" @onclick="CopyInviteLink">
+                        Copy invite link
+                    </button>
+                    @if (!string.IsNullOrWhiteSpace(CopyMessage))
+                    {
+                        <small>@CopyMessage</small>
+                    }
+                </div>
             </div>
             <div class="turn-box">
                 @if (CurrentRoom.CurrentTurn is null)
@@ -103,6 +129,7 @@ else
                             </label>
                             <button @onclick="SaveLobbySettings">Save settings</button>
                         </div>
+                        <button class="danger-action" @onclick="CancelDraft">Cancel draft</button>
                         @if (ShowStartConfirmation)
                         {
                             <div class="confirm-box">
@@ -348,10 +375,11 @@ else
 
 @code {
     [Parameter] public string Code { get; set; } = string.Empty;
-    [SupplyParameterFromQuery] public string? PlayerId { get; set; }
+    [SupplyParameterFromQuery(Name = "playerId")] public string? PlayerId { get; set; }
 
     private DraftRoom? CurrentRoom;
     private string Message = string.Empty;
+    private string RoomNotice = string.Empty;
     private int? DragSlotNumber;
     private int? DragFromIndex;
     private bool IsGeneratingFiles;
@@ -366,14 +394,20 @@ else
     private bool LobbyAllowBots;
     private bool LobbyAllowOverride;
     private bool ShowStartConfirmation;
+    private bool SuppressDisconnectOnDispose;
+    private bool PresenceRegistered;
     private int LastHandledSoundEventId;
+    private int MessageVersion;
+    private int CopyMessageVersion;
     private readonly DateTime SoundListenStartedUtc = DateTime.UtcNow;
+    private static readonly TimeSpan TransientMessageDuration = TimeSpan.FromSeconds(15);
 
     private DraftPlayerSlot? CurrentTurnPlayer => CurrentRoom?.CurrentTurn is null ? null : CurrentRoom.Players.FirstOrDefault(player => player.SlotNumber == CurrentRoom.CurrentTurn.SlotNumber);
     private DraftClientSession? CurrentClient => CurrentRoom?.Clients.FirstOrDefault(player => player.PlayerId == PlayerId);
     private bool IsHost => CurrentClient?.IsHost == true;
     private bool CanPick => CurrentRoom is not null && RoomService.CanPlayerPickCurrentTurn(CurrentRoom, PlayerId);
     private string CurrentClientLabel => CurrentClient is null ? "Unknown" : $"{CurrentClient.DisplayName}, {TeamName(CurrentClient.Team)}";
+    private string MaskedRoomCode => CurrentRoom is null ? "******" : new string('*', Math.Max(6, CurrentRoom.Code.Length));
     private int IconCount => CurrentRoom is null ? 0 : CurrentRoom.DeadlockData.Heroes.Count(hero => !string.IsNullOrWhiteSpace(hero.IconDataUrl)) + CurrentRoom.DeadlockData.Abilities.Count(ability => !string.IsNullOrWhiteSpace(ability.IconDataUrl));
     private string DownloadHref => CurrentRoom?.GeneratedZip is null ? "#" : $"data:application/zip;base64,{Convert.ToBase64String(CurrentRoom.GeneratedZip)}";
     private string DownloadVpkHref => CurrentRoom?.GeneratedVpk is null ? "#" : $"data:application/octet-stream;base64,{Convert.ToBase64String(CurrentRoom.GeneratedVpk)}";
@@ -412,7 +446,18 @@ else
 
     protected override void OnParametersSet()
     {
+        if (Nav.Uri.Contains("/draft", StringComparison.OrdinalIgnoreCase))
+        {
+            SuppressDisconnectOnDispose = false;
+        }
+
+        RoomNotice = RoomService.GetNotice(Code, PlayerId) ?? string.Empty;
         CurrentRoom = RoomService.GetRoom(Code);
+        if (CurrentRoom is not null && string.IsNullOrWhiteSpace(RoomNotice))
+        {
+            RoomService.MarkPlayerConnected(Code, PlayerId);
+        }
+
         SyncLobbyFields();
         if (CurrentRoom?.Status is DraftRoomStatus.Drafting or DraftRoomStatus.Completed &&
             Nav.Uri.Contains("/lobby", StringComparison.OrdinalIgnoreCase))
@@ -423,6 +468,18 @@ else
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (firstRender && !string.IsNullOrWhiteSpace(PlayerId))
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("deadlockAbilityDraft.registerRoomPresence", Code, PlayerId);
+                PresenceRegistered = true;
+            }
+            catch
+            {
+            }
+        }
+
         if (CurrentRoom is null)
         {
             return;
@@ -526,6 +583,14 @@ else
             {
                 builder.OpenElement(sequence++, "small");
                 builder.AddContent(sequence++, "Host");
+                builder.CloseElement();
+            }
+            if (IsHost && !client.IsHost)
+            {
+                builder.OpenElement(sequence++, "button");
+                builder.AddAttribute(sequence++, "class", "kick-button");
+                builder.AddAttribute(sequence++, "onclick", EventCallback.Factory.Create(this, () => KickPlayer(client.PlayerId)));
+                builder.AddContent(sequence++, "Kick");
                 builder.CloseElement();
             }
             builder.CloseElement();
@@ -632,7 +697,7 @@ else
         builder.OpenElement(sequence++, "article");
         builder.AddAttribute(sequence++, "class", $"player-panel {TeamCssClass(player.Team)}{(isTurn ? " active" : string.Empty)}");
         builder.OpenElement(sequence++, "div");
-        builder.AddAttribute(sequence++, "class", "hero-portrait");
+        builder.AddAttribute(sequence++, "class", $"hero-portrait{(player.IsDisconnected ? " disconnected" : string.Empty)}");
         if (!string.IsNullOrWhiteSpace(hero?.IconDataUrl))
         {
             builder.OpenElement(sequence++, "img");
@@ -644,6 +709,14 @@ else
         {
             builder.OpenElement(sequence++, "span");
             builder.AddContent(sequence++, "?");
+            builder.CloseElement();
+        }
+        if (player.IsDisconnected)
+        {
+            builder.OpenElement(sequence++, "img");
+            builder.AddAttribute(sequence++, "class", "disconnect-overlay");
+            builder.AddAttribute(sequence++, "src", "/icons/disconnected.svg");
+            builder.AddAttribute(sequence++, "alt", "Disconnected");
             builder.CloseElement();
         }
         builder.CloseElement();
@@ -662,9 +735,8 @@ else
         builder.AddAttribute(sequence++, "class", TeamTextClass(player.Team));
         builder.AddContent(sequence++, $"{player.TeamName()} {player.TeamIndex()}");
         builder.CloseElement();
-        builder.AddContent(sequence++, $" - {(player.IsBot ? "Bot" : player.LastSeenUtc is null ? "Open" : "Connected")}");
+        builder.AddContent(sequence++, $" - {PlayerConnectionLabel(player)}");
         builder.CloseElement();
-
         builder.OpenElement(sequence++, "div");
         builder.AddAttribute(sequence++, "class", "slot-row");
         foreach (var abilitySlot in AbilitySlots(player))
@@ -810,7 +882,7 @@ else
         if (CurrentRoom?.Clients.Any(client => !client.IsReady) == true)
         {
             ShowStartConfirmation = true;
-            Message = "Some players are not ready. Confirm to start anyway.";
+            SetMessage("Some players are not ready. Confirm to start anyway.");
             return;
         }
 
@@ -826,7 +898,7 @@ else
     private void CancelStartConfirmation()
     {
         ShowStartConfirmation = false;
-        Message = string.Empty;
+        ClearMessage();
     }
 
     private void StartDraftCore()
@@ -836,6 +908,7 @@ else
             RoomService.StartDraft(Code, PlayerId ?? string.Empty);
             if (CurrentRoom is not null)
             {
+                SuppressDisconnectOnDispose = true;
                 Nav.NavigateTo($"/room/{CurrentRoom.Code}/draft?playerId={PlayerId}");
             }
         });
@@ -853,7 +926,7 @@ else
         try
         {
             IsGeneratingFiles = true;
-            Message = "Generating files...";
+            SetMessage("Generating files...", autoClear: false);
             var packingStatus = DeadPackerService.GetStatus();
             if (packingStatus.Enabled && !packingStatus.GameRootValid)
             {
@@ -865,13 +938,13 @@ else
             await InvokeAsync(StateHasChanged);
             await Task.Run(() => RoomService.GenerateZip(Code, PlayerId ?? string.Empty));
             CurrentRoom = RoomService.GetRoom(Code);
-            Message = string.IsNullOrWhiteSpace(CurrentRoom?.PackingError)
+            SetMessage(string.IsNullOrWhiteSpace(CurrentRoom?.PackingError)
                 ? "Generated files are ready."
-                : "Raw ZIP generated. VPK generation failed; see details below.";
+                : "Raw ZIP generated. VPK generation failed; see details below.");
         }
         catch (Exception ex)
         {
-            Message = ex.Message;
+            SetMessage(ex.Message);
         }
         finally
         {
@@ -887,13 +960,13 @@ else
             var status = DeadPackerService.SaveGameRootPath(GameRootPathInput);
             GameRootMissingItems = status.GameRootMissingItems;
             ShowGameRootModal = !status.GameRootValid;
-            Message = status.GameRootValid ? "Deadlock game folder saved. You can generate files again." : "Deadlock game folder is still invalid.";
+            SetMessage(status.GameRootValid ? "Deadlock game folder saved. You can generate files again." : "Deadlock game folder is still invalid.");
         }
         catch (Exception ex)
         {
             var status = DeadPackerService.GetStatus();
             GameRootMissingItems = status.GameRootMissingItems;
-            Message = ex.Message;
+            SetMessage(ex.Message);
         }
     }
 
@@ -902,15 +975,51 @@ else
         try
         {
             var copied = await JS.InvokeAsync<bool>("deadlockAbilityDraft.copyText", text);
-            CopyMessage = copied ? "Copied." : "Copy failed. Select the text manually.";
+            SetCopyMessage(copied ? "Copied." : "Copy failed. Select the text manually.");
         }
         catch
         {
-            CopyMessage = "Copy failed. Select the text manually.";
+            SetCopyMessage("Copy failed. Select the text manually.");
         }
     }
 
     private void ChangeTeam() => Try(() => RoomService.ChangeTeam(Code, PlayerId ?? string.Empty, SelectedLobbyTeam));
+    private void KickPlayer(string targetPlayerId) => Try(() => RoomService.KickPlayer(Code, PlayerId ?? string.Empty, targetPlayerId));
+    private void CancelDraft() => Try(() => RoomService.CancelDraft(Code, PlayerId ?? string.Empty));
+
+    private async Task CopyRoomCode()
+    {
+        if (CurrentRoom is null)
+        {
+            return;
+        }
+
+        await CopyText(CurrentRoom.Code);
+    }
+
+    private async Task CopyInviteLink()
+    {
+        if (CurrentRoom is null)
+        {
+            return;
+        }
+
+        await CopyText(Nav.ToAbsoluteUri($"/join/{CurrentRoom.Code}").AbsoluteUri);
+    }
+
+    private async Task CopyText(string text)
+    {
+        try
+        {
+            var copied = await JS.InvokeAsync<bool>("deadlockAbilityDraft.copyText", text);
+            SetCopyMessage(copied ? "Copied." : "Copy failed.");
+        }
+        catch
+        {
+            SetCopyMessage("Copy failed.");
+        }
+    }
+
     private void SaveLobbySettings() => Try(() => RoomService.UpdateRoomConfig(Code, PlayerId ?? string.Empty, new DraftRoomConfig
     {
         DraftMode = LobbyDraftMode,
@@ -962,12 +1071,70 @@ else
     {
         try
         {
-            Message = string.Empty;
+            ClearMessage();
             action();
         }
         catch (Exception ex)
         {
-            Message = ex.Message;
+            SetMessage(ex.Message);
+        }
+    }
+
+    private void SetMessage(string value, bool autoClear = true)
+    {
+        Message = value;
+        var version = ++MessageVersion;
+        if (autoClear)
+        {
+            _ = ClearMessageAfterDelay(version);
+        }
+    }
+
+    private void ClearMessage()
+    {
+        Message = string.Empty;
+        MessageVersion++;
+    }
+
+    private void SetCopyMessage(string value)
+    {
+        CopyMessage = value;
+        _ = ClearCopyMessageAfterDelay(++CopyMessageVersion);
+    }
+
+    private async Task ClearMessageAfterDelay(int version)
+    {
+        try
+        {
+            await Task.Delay(TransientMessageDuration);
+            if (version != MessageVersion)
+            {
+                return;
+            }
+
+            Message = string.Empty;
+            await InvokeAsync(StateHasChanged);
+        }
+        catch
+        {
+        }
+    }
+
+    private async Task ClearCopyMessageAfterDelay(int version)
+    {
+        try
+        {
+            await Task.Delay(TransientMessageDuration);
+            if (version != CopyMessageVersion)
+            {
+                return;
+            }
+
+            CopyMessage = string.Empty;
+            await InvokeAsync(StateHasChanged);
+        }
+        catch
+        {
         }
     }
 
@@ -980,6 +1147,9 @@ else
 
         return CurrentRoom.DeadlockData.Heroes.FirstOrDefault(hero => hero.Key == key)?.DisplayName ?? key;
     }
+
+    private static string PlayerConnectionLabel(DraftPlayerSlot player) =>
+        player.IsBot ? "Bot" : player.IsDisconnected ? "Disconnected" : player.LastSeenUtc is null ? "Open" : "Connected";
 
     private string AbilityName(string? abilityKey)
     {
@@ -1053,6 +1223,7 @@ else
 
         _ = InvokeAsync(() =>
         {
+            RoomNotice = RoomService.GetNotice(Code, PlayerId) ?? string.Empty;
             CurrentRoom = RoomService.GetRoom(Code);
             StateHasChanged();
         });
@@ -1061,6 +1232,10 @@ else
     public void Dispose()
     {
         RoomService.RoomChanged -= OnRoomChanged;
+        if (PresenceRegistered && !SuppressDisconnectOnDispose)
+        {
+            RoomService.MarkPlayerDisconnected(Code, PlayerId);
+        }
     }
 
     private sealed record HeroDraftGroup(HeroDefinition Hero, IReadOnlyList<DraftAbilityEntry> Abilities);

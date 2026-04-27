@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Options;
 using System.Security.Claims;
+using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders();
@@ -31,6 +32,7 @@ builder.Services.Configure<DeadPackerOptions>(builder.Configuration.GetSection("
 builder.Services.Configure<AdminAuthOptions>(builder.Configuration.GetSection("AdminAuth"));
 builder.Services.Configure<CacheCleanupOptions>(builder.Configuration.GetSection("CacheCleanup"));
 builder.Services.Configure<GeneratedFilesOptions>(builder.Configuration.GetSection("GeneratedFiles"));
+builder.Services.Configure<DraftTimingOptions>(builder.Configuration.GetSection("DraftTiming"));
 builder.Services.AddSingleton<abilitydraft.Services.LocalisationDiscoveryService>();
 builder.Services.AddSingleton<abilitydraft.Services.LocalisationParser>();
 builder.Services.AddSingleton<abilitydraft.Services.DeadlockFileParser>();
@@ -92,6 +94,18 @@ app.MapGet("/admin/logout", async (HttpContext httpContext) =>
     await httpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
     return Results.Redirect("/");
 });
+app.MapPost("/room-presence/disconnect", async (HttpContext httpContext, abilitydraft.Services.DraftRoomService rooms) =>
+{
+    var payload = await JsonSerializer.DeserializeAsync<RoomPresencePayload>(
+        httpContext.Request.Body,
+        new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+    if (!string.IsNullOrWhiteSpace(payload?.RoomCode) && !string.IsNullOrWhiteSpace(payload.PlayerId))
+    {
+        rooms.MarkPlayerDisconnected(payload.RoomCode, payload.PlayerId);
+    }
+
+    return Results.NoContent();
+}).DisableAntiforgery();
 app.MapHub<abilitydraft.Services.DraftRoomHub>("/draft-room-hub");
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
@@ -110,3 +124,5 @@ static string SafeReturnUrl(string? returnUrl)
 
     return "/admin";
 }
+
+sealed record RoomPresencePayload(string RoomCode, string PlayerId);
