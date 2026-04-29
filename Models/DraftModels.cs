@@ -7,6 +7,7 @@ public sealed class DeadlockDataOptions
     public string GameDataPath { get; set; } = "Data/Deadlock";
     public string IconsPath { get; set; } = "Data/Icons";
     public string OutputPath { get; set; } = "Data/Generated";
+    public int UpdateIntervalMinutes { get; set; }
 }
 
 public sealed class DeadPackerOptions

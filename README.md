@@ -4,7 +4,7 @@
 
 A web-based Ability Draft tool for [Deadlock](https://store.steampowered.com/app/1422450/Deadlock/), inspired by [Dota 2](https://store.steampowered.com/app/570/Dota_2/) [Ability Draft](https://dota2.fandom.com/wiki/Ability_Draft).
 
-![Screenshot](https://i.imgur.com/T0ek9dT.png)
+![Screenshot](https://i.imgur.com/LbE4B4P.png)
 
 Players create a room, join by code, pick a team, draft heroes and abilities, then export generated Deadlock `.vdata` files and, if packing tools are installed, a ready `.vpk`.
 
@@ -55,7 +55,7 @@ Open the localhost URL shown in the terminal.
 - .NET 10 SDK
 - DeadPacker, included in `Tools/DeadPacker`
 - CSDK 12 placed in `Tools/Reduced_CSDK_12`
-- `heroes.vdata` and `abilities.vdata` are already included in `Data/Deadlock`
+- `heroes.vdata` and `abilities.vdata` are auto-loaded from SteamTracking/GameTracking-Deadlock
 - Hero and ability icons are already included in `Data/Icons`
 
 ## Folder Setup
@@ -64,10 +64,18 @@ Game data used by the website:
 
 ```text
 Data/Deadlock/
-  heroes.vdata
-  abilities.vdata
   bans.json
   site_localisation_overrides.json
+```
+
+The app automatically checks GitHub for the latest `heroes.vdata` and `abilities.vdata`, stores them locally in `Data/Deadlock`, and reloads server data after updates.
+
+The check interval is configured in `appsettings.json`:
+
+```json
+"DeadlockData": {
+  "UpdateIntervalMinutes": 60
+}
 ```
 
 Icons:
@@ -143,7 +151,7 @@ Change it before hosting:
 
 
 
-![Screenshot](https://i.imgur.com/3CQQXCw.png)
+![Screenshot](https://i.imgur.com/c2juGsk.png)
 
 
 ## Draft Timers
@@ -264,7 +272,8 @@ Example `appsettings.json`:
   "DeadlockData": {
     "GameDataPath": "Data/Deadlock",
     "IconsPath": "Data/Icons",
-    "OutputPath": "Data/Generated"
+    "OutputPath": "Data/Generated",
+    "UpdateIntervalMinutes": 60
   },
   "DeadPacker": {
     "Enabled": true,
@@ -283,6 +292,10 @@ Example `appsettings.json`:
   "GeneratedFiles": {
     "RoomCacheLifetimeHours": 6,
     "CleanupOnStartup": true
+  },
+  "DraftTiming": {
+    "PreparationSeconds": 30,
+    "PickSeconds": 20
   },
   "AdminAuth": {
     "Username": "admin",

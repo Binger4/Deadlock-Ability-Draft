@@ -16,6 +16,11 @@ Data/Generated/**
 Data/Packing/**
 !Data/Packing/
 !Data/Packing/.gitkeep
+Data/Deadlock/*
+!Data/Deadlock/
+!Data/Deadlock/.gitkeep
+!Data/Deadlock/bans.json
+!Data/Deadlock/site_localisation_overrides.json
 
 # Local logs / generated packing artifacts that may be created in older paths
 *.log

@@ -27,6 +27,7 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
     });
 builder.Services.AddAuthorization();
 builder.Services.AddSignalR();
+builder.Services.AddHttpClient();
 builder.Services.Configure<DeadlockDataOptions>(builder.Configuration.GetSection("DeadlockData"));
 builder.Services.Configure<DeadPackerOptions>(builder.Configuration.GetSection("DeadPacker"));
 builder.Services.Configure<AdminAuthOptions>(builder.Configuration.GetSection("AdminAuth"));
@@ -44,6 +45,7 @@ builder.Services.AddSingleton<abilitydraft.Services.ZipExportService>();
 builder.Services.AddSingleton<abilitydraft.Services.DeadPackerService>();
 builder.Services.AddSingleton<abilitydraft.Services.DraftRoomService>();
 builder.Services.AddSingleton<abilitydraft.Services.ServerDeadlockDataService>();
+builder.Services.AddHostedService<abilitydraft.Services.DeadlockVDataUpdateService>();
 builder.Services.AddHostedService<abilitydraft.Services.DraftCacheCleanupService>();
 
 var app = builder.Build();
