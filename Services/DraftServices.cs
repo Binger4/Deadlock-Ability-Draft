@@ -369,6 +369,7 @@ public sealed class DraftRoomService(
     ModFileGenerator modFileGenerator,
     ZipExportService zipExportService,
     DeadPackerService deadPackerService,
+    DraftStatsService draftStatsService,
     IOptions<DraftTimingOptions> timingOptions)
 {
     private readonly ConcurrentDictionary<string, DraftRoom> _rooms = new(StringComparer.OrdinalIgnoreCase);
@@ -385,6 +386,30 @@ public sealed class DraftRoomService(
     private const string AutoPickSound = "/sounds/auto-pick.mp3";
 
     public DraftRoom? GetRoom(string code) => _rooms.TryGetValue(NormalizeCode(code), out var room) ? room : null;
+
+    public IReadOnlyList<ActiveDraftStatsRecord> GetActiveDraftStats()
+    {
+        var records = new List<ActiveDraftStatsRecord>();
+        foreach (var room in _rooms.Values)
+        {
+            lock (room)
+            {
+                if (room.Status != DraftRoomStatus.Drafting)
+                {
+                    continue;
+                }
+
+                records.Add(new ActiveDraftStatsRecord(
+                    HostName(room),
+                    room.Code,
+                    DraftTurnService.ActiveSlots(room).Count()));
+            }
+        }
+
+        return records
+            .OrderBy(record => record.DraftCode, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
 
     public string? GetNotice(string code, string? playerId)
     {
@@ -1039,6 +1064,7 @@ public sealed class DraftRoomService(
         room.TimerPhase = DraftTimerPhase.None;
         room.TimerEndsUtc = DateTime.UtcNow;
         abilityAssignmentService.ValidateFinalDraft(room);
+        RecordCompletedDraftStats(room);
         StopRoomTimer(room.Code);
     }
 
@@ -1136,6 +1162,7 @@ public sealed class DraftRoomService(
         {
             room.Status = DraftRoomStatus.Completed;
             room.TimerPhase = DraftTimerPhase.None;
+            RecordCompletedDraftStats(room);
             StopRoomTimer(room.Code);
             return;
         }
@@ -1487,6 +1514,22 @@ public sealed class DraftRoomService(
     }
 
     private static string NormalizeCode(string code) => code.Trim().ToUpperInvariant();
+
+    private void RecordCompletedDraftStats(DraftRoom room)
+    {
+        if (room.CompletedStatsRecorded)
+        {
+            return;
+        }
+
+        draftStatsService.RecordCompletedDraft(room);
+        room.CompletedStatsRecorded = true;
+    }
+
+    private static string HostName(DraftRoom room) =>
+        room.Clients.FirstOrDefault(client => client.IsHost)?.DisplayName
+        ?? room.Players.FirstOrDefault(player => player.IsHost)?.DisplayName
+        ?? "Unknown";
 
     private static int PositiveOrDefault(params int[] values)
     {

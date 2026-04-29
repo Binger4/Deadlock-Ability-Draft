@@ -7,6 +7,7 @@
 @inject ServerDeadlockDataService DataService
 @inject DraftRoomService RoomService
 @inject DeadPackerService DeadPackerService
+@inject DraftStatsService DraftStatsService
 @inject IOptions<DeadlockDataOptions> Options
 
 <PageTitle>Deadlock Data Admin</PageTitle>
@@ -73,6 +74,108 @@
                 }
             </div>
         }
+    </section>
+
+    <section class="form-panel admin-wide">
+        <div class="admin-editor-header">
+            <div>
+                <p class="eyebrow">Statistics</p>
+                <h2>Draft statistics</h2>
+                <p>Lightweight room metadata only. Generated files, cache folders, ZIPs, and VPKs are not affected.</p>
+            </div>
+            <button class="icon-button stats-refresh-button" title="Update draft statistics" aria-label="Update draft statistics" @onclick="RefreshDraftStats">
+                <img src="/icons/update.svg" alt="" />
+            </button>
+        </div>
+
+        <div class="stats-sections">
+            <details class="stats-section">
+                <summary>
+                    <strong>Active drafts</strong>
+                    <span>@ActiveDraftStats.Count currently drafting</span>
+                </summary>
+                @if (ActiveDraftStats.Count == 0)
+                {
+                    <p class="message">No drafts are currently in the picking phase.</p>
+                }
+                else
+                {
+                    <table class="stats-table">
+                        <thead>
+                            <tr>
+                                <th>Host</th>
+                                <th>Code</th>
+                                <th>Players</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var draft in ActiveDraftStats)
+                            {
+                                <tr>
+                                    <td>@draft.HostName</td>
+                                    <td><code>@draft.DraftCode</code></td>
+                                    <td>@draft.PlayerCount</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </details>
+
+            <details class="stats-section">
+                <summary>
+                    <strong>Completed drafts</strong>
+                    <span>@CompletedDraftStats.Count total</span>
+                </summary>
+                @if (!DraftStatsService.SaveCompletedHistoryEnabled)
+                {
+                    <p class="message">Completed draft history saving is disabled in <code>appsettings.json</code>.</p>
+                }
+                <div class="stats-actions">
+                    @if (ShowClearStatsConfirmation)
+                    {
+                        <div class="confirm-box inline-confirm">
+                            <strong>Clear completed draft history?</strong>
+                            <span>This only clears <code>Data/Stats/completed-drafts.json</code>.</span>
+                            <button class="success-action" @onclick="ConfirmClearCompletedStats">Clear all</button>
+                            <button @onclick="CancelClearCompletedStats">Cancel</button>
+                        </div>
+                    }
+                    else
+                    {
+                        <button class="success-action" @onclick="RequestClearCompletedStats" disabled="@(CompletedDraftStats.Count == 0)">Clear all</button>
+                    }
+                </div>
+                @if (CompletedDraftStats.Count == 0)
+                {
+                    <p class="message">No completed draft history yet.</p>
+                }
+                else
+                {
+                    <table class="stats-table">
+                        <thead>
+                            <tr>
+                                <th>Host</th>
+                                <th>Code</th>
+                                <th>Players</th>
+                                <th>Completed</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var draft in CompletedDraftStats)
+                            {
+                                <tr>
+                                    <td>@draft.HostName</td>
+                                    <td><code>@draft.DraftCode</code></td>
+                                    <td>@draft.PlayerCount</td>
+                                    <td>@draft.CompletedUtc.ToLocalTime()</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </details>
+        </div>
     </section>
 
     <section class="form-panel admin-wide">
@@ -330,10 +433,14 @@
     private Dictionary<string, string> HeroOverrides = new(StringComparer.Ordinal);
     private Dictionary<string, string> AbilityOverrides = new(StringComparer.Ordinal);
     private string GameRootPathInput = string.Empty;
+    private bool ShowClearStatsConfirmation;
+    private IReadOnlyList<CompletedDraftStatsRecord> CompletedDraftStats = [];
     private DeadPackerStatus PackingStatus => DeadPackerService.GetStatus();
+    private IReadOnlyList<ActiveDraftStatsRecord> ActiveDraftStats => RoomService.GetActiveDraftStats();
 
     protected override void OnInitialized()
     {
+        LoadCompletedStats();
         LoadEditorState();
     }
 
@@ -365,6 +472,39 @@
     {
         var path = DeadPackerService.TestTools();
         Message = $"Packing tool status written to {path}";
+    }
+
+    private void RequestClearCompletedStats()
+    {
+        ShowClearStatsConfirmation = true;
+    }
+
+    private void CancelClearCompletedStats()
+    {
+        ShowClearStatsConfirmation = false;
+    }
+
+    private void RefreshDraftStats()
+    {
+        LoadCompletedStats();
+    }
+
+    private void ConfirmClearCompletedStats()
+    {
+        ShowClearStatsConfirmation = false;
+        if (DraftStatsService.ClearCompletedDrafts())
+        {
+            LoadCompletedStats();
+            Message = "Completed draft statistics history cleared.";
+            return;
+        }
+
+        Message = "Could not clear completed draft statistics history. Check server logs.";
+    }
+
+    private void LoadCompletedStats()
+    {
+        CompletedDraftStats = DraftStatsService.GetCompletedDrafts();
     }
 
     private void SaveGameRootPath()

@@ -16,6 +16,9 @@ Data/Generated/**
 Data/Packing/**
 !Data/Packing/
 !Data/Packing/.gitkeep
+Data/Stats/**
+!Data/Stats/
+!Data/Stats/.gitkeep
 Data/Deadlock/*
 !Data/Deadlock/
 !Data/Deadlock/.gitkeep

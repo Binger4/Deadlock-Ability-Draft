@@ -516,6 +516,13 @@ h3 {
     line-height: 1;
 }
 
+.icon-button img {
+    width: 16px;
+    height: 16px;
+    object-fit: contain;
+    pointer-events: none;
+}
+
 .instruction-modal {
     width: min(900px, 100%);
     max-height: min(88vh, 920px);
@@ -590,6 +597,79 @@ h3 {
     display: flex;
     gap: .65rem;
     flex-wrap: wrap;
+}
+
+.stats-sections {
+    display: grid;
+    gap: .75rem;
+}
+
+.stats-section {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: rgba(0, 0, 0, .22);
+    padding: .75rem;
+}
+
+.stats-section summary {
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    color: var(--text);
+}
+
+.stats-section summary span {
+    color: var(--muted);
+}
+
+.stats-refresh-button img {
+    filter: invert(86%) sepia(29%) saturate(671%) hue-rotate(3deg) brightness(96%) contrast(94%);
+}
+
+.stats-refresh-button:hover img {
+    transform: rotate(35deg);
+    transition: transform .16s ease;
+}
+
+.stats-table {
+    width: 100%;
+    margin-top: .75rem;
+    border-collapse: collapse;
+    color: var(--text);
+}
+
+.stats-table th,
+.stats-table td {
+    padding: .48rem .55rem;
+    border-bottom: 1px solid rgba(255, 255, 255, .08);
+    text-align: left;
+}
+
+.stats-table th {
+    color: var(--muted);
+    font-size: .78rem;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+}
+
+.stats-actions {
+    margin-top: .75rem;
+}
+
+.success-action {
+    border-color: rgba(54, 216, 93, .45);
+    background: rgba(24, 90, 34, .42);
+    color: var(--green);
+}
+
+.success-action:hover {
+    border-color: var(--green);
+}
+
+.inline-confirm {
+    margin-top: 0;
+    width: fit-content;
 }
 
 .admin-editor {

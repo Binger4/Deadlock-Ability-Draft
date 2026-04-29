@@ -131,6 +131,14 @@ Change it before hosting:
     "Password": "admin"
 ```
 
+The admin panel also shows draft statistics. Active drafts are read from memory only. Completed draft history is saved to `Data/Stats/completed-drafts.json` when this config option is enabled:
+
+```json
+"DraftStats": {
+  "SaveCompletedDraftHistory": true
+}
+```
+
 
 ## Draft Flow
 
@@ -296,6 +304,9 @@ Example `appsettings.json`:
   "DraftTiming": {
     "PreparationSeconds": 30,
     "PickSeconds": 20
+  },
+  "DraftStats": {
+    "SaveCompletedDraftHistory": true
   },
   "AdminAuth": {
     "Username": "admin",

@@ -34,6 +34,7 @@ builder.Services.Configure<AdminAuthOptions>(builder.Configuration.GetSection("A
 builder.Services.Configure<CacheCleanupOptions>(builder.Configuration.GetSection("CacheCleanup"));
 builder.Services.Configure<GeneratedFilesOptions>(builder.Configuration.GetSection("GeneratedFiles"));
 builder.Services.Configure<DraftTimingOptions>(builder.Configuration.GetSection("DraftTiming"));
+builder.Services.Configure<DraftStatsOptions>(builder.Configuration.GetSection("DraftStats"));
 builder.Services.AddSingleton<abilitydraft.Services.LocalisationDiscoveryService>();
 builder.Services.AddSingleton<abilitydraft.Services.LocalisationParser>();
 builder.Services.AddSingleton<abilitydraft.Services.DeadlockFileParser>();
@@ -43,6 +44,7 @@ builder.Services.AddSingleton<abilitydraft.Services.AbilityAssignmentService>();
 builder.Services.AddSingleton<abilitydraft.Services.ModFileGenerator>();
 builder.Services.AddSingleton<abilitydraft.Services.ZipExportService>();
 builder.Services.AddSingleton<abilitydraft.Services.DeadPackerService>();
+builder.Services.AddSingleton<abilitydraft.Services.DraftStatsService>();
 builder.Services.AddSingleton<abilitydraft.Services.DraftRoomService>();
 builder.Services.AddSingleton<abilitydraft.Services.ServerDeadlockDataService>();
 builder.Services.AddHostedService<abilitydraft.Services.DeadlockVDataUpdateService>();

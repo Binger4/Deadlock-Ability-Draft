@@ -40,6 +40,11 @@ public sealed class DraftTimingOptions
     public int PickSeconds { get; set; }
 }
 
+public sealed class DraftStatsOptions
+{
+    public bool? SaveCompletedDraftHistory { get; set; }
+}
+
 public sealed class DeadPackerServerSettings
 {
     public string GameRootPath { get; set; } = string.Empty;
@@ -171,6 +176,7 @@ public sealed class DraftRoom
     public string? PackingLogPath { get; set; }
     public string? PackingError { get; set; }
     public string? LastError { get; set; }
+    public bool CompletedStatsRecorded { get; set; }
 
     public DraftTurn? CurrentTurn => CurrentTurnIndex >= 0 && CurrentTurnIndex < TurnOrder.Count ? TurnOrder[CurrentTurnIndex] : null;
     public bool IsCompleted => Status == DraftRoomStatus.Completed;
@@ -272,6 +278,8 @@ public sealed record DraftTurn(int SlotNumber, DraftPickKind PickKind, int Round
 public sealed record DraftPickRecord(int SlotNumber, DraftPickKind PickKind, string PickedKey, DateTime PickedUtc);
 public sealed record DraftSoundEvent(int Id, DraftSoundScope Scope, string SoundPath, string? TargetPlayerId, DateTime CreatedUtc);
 public sealed record JoinRoomResult(string RoomCode, string PlayerId, int? SlotNumber);
+public sealed record ActiveDraftStatsRecord(string HostName, string DraftCode, int PlayerCount);
+public sealed record CompletedDraftStatsRecord(string HostName, string DraftCode, int PlayerCount, DateTime CompletedUtc);
 public sealed record GeneratedModFile(string Path, string Content);
 public sealed record DeadPackerStatus(
     bool Enabled,
