@@ -47,7 +47,8 @@ builder.Services.AddSingleton<abilitydraft.Services.DeadPackerService>();
 builder.Services.AddSingleton<abilitydraft.Services.DraftStatsService>();
 builder.Services.AddSingleton<abilitydraft.Services.DraftRoomService>();
 builder.Services.AddSingleton<abilitydraft.Services.ServerDeadlockDataService>();
-builder.Services.AddHostedService<abilitydraft.Services.DeadlockVDataUpdateService>();
+builder.Services.AddSingleton<abilitydraft.Services.DeadlockVDataUpdateService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<abilitydraft.Services.DeadlockVDataUpdateService>());
 builder.Services.AddHostedService<abilitydraft.Services.DraftCacheCleanupService>();
 
 var app = builder.Build();

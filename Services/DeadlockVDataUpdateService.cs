@@ -17,34 +17,81 @@ public sealed class DeadlockVDataUpdateService(
     private const string HeroesUrl = "https://raw.githubusercontent.com/SteamTracking/GameTracking-Deadlock/master/game/citadel/pak01_dir/scripts/heroes.vdata";
     private const string CommitUrl = "https://api.github.com/repos/SteamTracking/GameTracking-Deadlock/commits/master";
 
+    private readonly SemaphoreSlim _updateLock = new(1, 1);
+    private readonly object _stateLock = new();
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await CheckAndUpdateAsync(stoppingToken);
-
         while (!stoppingToken.IsCancellationRequested)
         {
-            var interval = TimeSpan.FromMinutes(Math.Max(1, options.Value.UpdateIntervalMinutes));
             try
             {
-                await Task.Delay(interval, stoppingToken);
-                await CheckAndUpdateAsync(stoppingToken);
+                await RunScheduledCheckAsync(stoppingToken);
+                await Task.Delay(UpdateInterval(), stoppingToken);
             }
             catch (OperationCanceledException)
             {
                 return;
             }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Deadlock vdata update loop failed. The next scheduled check will still run.");
+            }
         }
     }
 
-    private async Task CheckAndUpdateAsync(CancellationToken cancellationToken)
+    public DeadlockVDataUpdateStatus GetStatus()
+    {
+        var state = LoadState();
+        return new DeadlockVDataUpdateStatus(
+            _updateLock.CurrentCount == 0,
+            UpdateIntervalMinutes(),
+            state.LastCheckedUtc,
+            state.LastUpdatedUtc,
+            state.LastReloadedUtc,
+            state.LastCheckedCommitHash ?? state.CommitHash,
+            StatusText(state),
+            state.LastError,
+            state.LastErrorUtc);
+    }
+
+    public Task<DeadlockVDataCheckResult> VerifyNowAsync(CancellationToken cancellationToken = default) =>
+        CheckAndUpdateAsync("manual", cancellationToken);
+
+    private async Task RunScheduledCheckAsync(CancellationToken cancellationToken)
+    {
+        var result = await CheckAndUpdateAsync("scheduled", cancellationToken);
+        if (result.AlreadyRunning)
+        {
+            logger.LogInformation("Skipped scheduled vdata check because another update is already running.");
+        }
+    }
+
+    private async Task<DeadlockVDataCheckResult> CheckAndUpdateAsync(string trigger, CancellationToken cancellationToken)
+    {
+        if (!await _updateLock.WaitAsync(0, cancellationToken))
+        {
+            return new DeadlockVDataCheckResult(true, false, "Vdata update is already in progress.");
+        }
+
+        try
+        {
+            return await CheckAndUpdateCoreAsync(trigger, cancellationToken);
+        }
+        finally
+        {
+            _updateLock.Release();
+        }
+    }
+
+    private async Task<DeadlockVDataCheckResult> CheckAndUpdateCoreAsync(string trigger, CancellationToken cancellationToken)
     {
         var dataPath = Resolve(options.Value.GameDataPath);
         Directory.CreateDirectory(dataPath);
 
         var abilitiesPath = Path.Combine(dataPath, "abilities.vdata");
         var heroesPath = Path.Combine(dataPath, "heroes.vdata");
-        var statePath = Path.Combine(dataPath, "state.json");
-        var state = LoadState(statePath);
+        var state = LoadState();
         var checkedUtc = DateTime.UtcNow;
 
         try
@@ -53,14 +100,18 @@ public sealed class DeadlockVDataUpdateService(
             var missingFiles = !File.Exists(abilitiesPath) || !File.Exists(heroesPath);
             var needsUpdate = missingFiles || !string.Equals(state.CommitHash, latestCommit, StringComparison.Ordinal);
 
+            state.LastCheckedUtc = checkedUtc;
+            state.LastCheckedCommitHash = latestCommit;
+            state.LastError = null;
+            state.LastErrorUtc = null;
+
             if (!needsUpdate)
             {
-                state.LastCheckedUtc = checkedUtc;
+                state.LastResult = "files are up to date";
                 state.LastMessage = $"vdata files are up to date, last check at {checkedUtc:O}";
-                state.LastError = null;
-                SaveState(statePath, state);
+                SaveState(state);
                 logger.LogInformation("{Message}", state.LastMessage);
-                return;
+                return new DeadlockVDataCheckResult(false, false, state.LastMessage);
             }
 
             var abilitiesBytes = await DownloadBytesAsync(AbilitiesUrl, cancellationToken);
@@ -71,22 +122,28 @@ public sealed class DeadlockVDataUpdateService(
 
             var updatedUtc = DateTime.UtcNow;
             state.CommitHash = latestCommit;
-            state.LastCheckedUtc = checkedUtc;
             state.LastUpdatedUtc = updatedUtc;
+            state.LastResult = missingFiles ? "files downloaded" : "files updated";
             var reloadMessage = ReloadServerData(state);
             state.LastMessage = missingFiles
                 ? $"vdata files downloaded for the first time at {updatedUtc:O}; {reloadMessage}"
                 : $"vdata files successfully updated at {updatedUtc:O}; {reloadMessage}";
-            SaveState(statePath, state);
+            SaveState(state);
 
             logger.LogInformation("{Message}", state.LastMessage);
+            return new DeadlockVDataCheckResult(false, true, state.LastMessage);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            var errorUtc = DateTime.UtcNow;
             state.LastCheckedUtc = checkedUtc;
-            state.LastError = $"{DateTime.UtcNow:O}: {ex.Message}";
-            SaveState(statePath, state);
-            logger.LogError(ex, "Deadlock vdata update check failed at {Timestamp}. Existing local files were kept.", DateTime.UtcNow);
+            state.LastErrorUtc = errorUtc;
+            state.LastError = $"{errorUtc:O}: {ex.Message}";
+            state.LastResult = $"GitHub check failed during {trigger}; local files were kept";
+            state.LastMessage = state.LastResult;
+            SaveState(state);
+            logger.LogError(ex, "Deadlock vdata update check failed at {Timestamp}. Existing local files were kept.", errorUtc);
+            return new DeadlockVDataCheckResult(false, false, state.LastMessage);
         }
     }
 
@@ -120,6 +177,7 @@ public sealed class DeadlockVDataUpdateService(
         catch (Exception ex)
         {
             state.LastReloadedUtc = DateTime.UtcNow;
+            state.LastErrorUtc = state.LastReloadedUtc;
             state.LastError = $"{state.LastReloadedUtc:O}: server data reload failed: {ex.Message}";
             logger.LogError(ex, "Deadlock vdata files were updated, but server data reload failed.");
             return $"server data reload failed at {state.LastReloadedUtc:O}";
@@ -165,32 +223,50 @@ public sealed class DeadlockVDataUpdateService(
         var client = httpClientFactory.CreateClient(nameof(DeadlockVDataUpdateService));
         client.DefaultRequestHeaders.UserAgent.Clear();
         client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("DeadlockAbilityDraft", "1.0"));
+        client.DefaultRequestHeaders.Accept.Clear();
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         return client;
     }
 
-    private static DeadlockVDataState LoadState(string path)
+    private DeadlockVDataState LoadState()
     {
-        if (!File.Exists(path))
+        lock (_stateLock)
         {
-            return new DeadlockVDataState();
-        }
+            var path = StatePath();
+            if (!File.Exists(path))
+            {
+                return new DeadlockVDataState();
+            }
 
-        try
-        {
-            return JsonSerializer.Deserialize<DeadlockVDataState>(File.ReadAllText(path, Encoding.UTF8), JsonOptions()) ?? new DeadlockVDataState();
-        }
-        catch
-        {
-            return new DeadlockVDataState();
+            try
+            {
+                return JsonSerializer.Deserialize<DeadlockVDataState>(File.ReadAllText(path, Encoding.UTF8), JsonOptions()) ?? new DeadlockVDataState();
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Deadlock vdata state file is missing, corrupted, or unreadable. Returning empty status.");
+                return new DeadlockVDataState
+                {
+                    LastError = $"{DateTime.UtcNow:O}: state file could not be read: {ex.Message}",
+                    LastErrorUtc = DateTime.UtcNow,
+                    LastResult = "state file could not be read"
+                };
+            }
         }
     }
 
-    private static void SaveState(string path, DeadlockVDataState state)
+    private void SaveState(DeadlockVDataState state)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        File.WriteAllText(path, JsonSerializer.Serialize(state, JsonOptions()), Encoding.UTF8);
+        lock (_stateLock)
+        {
+            var path = StatePath();
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, JsonSerializer.Serialize(state, JsonOptions()), Encoding.UTF8);
+        }
     }
+
+    private string StatePath() =>
+        Path.Combine(Resolve(options.Value.GameDataPath), "state.json");
 
     private static void ReplaceFileSafely(string path, byte[] bytes)
     {
@@ -217,8 +293,24 @@ public sealed class DeadlockVDataUpdateService(
         }
     }
 
+    private TimeSpan UpdateInterval() =>
+        TimeSpan.FromMinutes(UpdateIntervalMinutes());
+
+    private int UpdateIntervalMinutes() =>
+        options.Value.UpdateIntervalMinutes > 0 ? options.Value.UpdateIntervalMinutes : 60;
+
     private string Resolve(string path) =>
         Path.IsPathRooted(path) ? Path.GetFullPath(path) : Path.GetFullPath(Path.Combine(environment.ContentRootPath, path));
+
+    private static string StatusText(DeadlockVDataState state)
+    {
+        if (!string.IsNullOrWhiteSpace(state.LastResult))
+        {
+            return state.LastResult;
+        }
+
+        return state.LastCheckedUtc is null ? "not checked yet" : "last check completed";
+    }
 
     private static JsonSerializerOptions JsonOptions() => new()
     {
@@ -229,10 +321,13 @@ public sealed class DeadlockVDataUpdateService(
     private sealed class DeadlockVDataState
     {
         public string? CommitHash { get; set; }
+        public string? LastCheckedCommitHash { get; set; }
         public DateTime? LastCheckedUtc { get; set; }
         public DateTime? LastUpdatedUtc { get; set; }
         public DateTime? LastReloadedUtc { get; set; }
+        public string? LastResult { get; set; }
         public string? LastMessage { get; set; }
         public string? LastError { get; set; }
+        public DateTime? LastErrorUtc { get; set; }
     }
 }

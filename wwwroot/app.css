@@ -398,6 +398,13 @@ h3 {
     background: rgba(0, 0, 0, .22);
 }
 
+.status-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .75rem;
+}
+
 .server-status.ok {
     border-color: rgba(54, 216, 93, .55);
 }

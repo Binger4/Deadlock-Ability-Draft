@@ -8,6 +8,7 @@
 @inject DraftRoomService RoomService
 @inject DeadPackerService DeadPackerService
 @inject DraftStatsService DraftStatsService
+@inject DeadlockVDataUpdateService VDataUpdateService
 @inject IOptions<DeadlockDataOptions> Options
 
 <PageTitle>Deadlock Data Admin</PageTitle>
@@ -23,8 +24,21 @@
 
     <section class="form-panel admin-wide">
         <div class="server-status @(Snapshot.IsLoaded ? "ok" : "bad")">
-            <strong>@(Snapshot.IsLoaded ? "Loaded" : "Not loaded")</strong>
-            <span>@(Snapshot.Data?.Heroes.Count ?? 0) heroes - @(Snapshot.Data?.Abilities.Count ?? 0) abilities - loaded @Snapshot.LoadedUtc.ToLocalTime()</span>
+            <div class="status-heading">
+                <strong>@(Snapshot.IsLoaded ? "Loaded" : "Not loaded")</strong>
+                <button @onclick="VerifyVData" disabled="@VDataStatus.IsRunning">@(VDataStatus.IsRunning ? "Checking..." : "Verify")</button>
+            </div>
+            <span>Loaded: @(Snapshot.Data?.Heroes.Count ?? 0) heroes, @(Snapshot.Data?.Abilities.Count ?? 0) abilities</span>
+            <span>Last loaded: @FormatLocalTime(Snapshot.LoadedUtc)</span>
+            <span>Last checked: @FormatLocalTime(VDataStatus.LastCheckedUtc)</span>
+            <span>Last updated: @FormatLocalTime(VDataStatus.LastUpdatedUtc)</span>
+            <span>Latest commit: @ShortCommit(VDataStatus.LatestCommitHash)</span>
+            <span>Check interval: @VDataStatus.UpdateIntervalMinutes minute(s)</span>
+            <span>Status: @VDataStatus.Status</span>
+            @if (!string.IsNullOrWhiteSpace(VDataStatus.LastError))
+            {
+                <span class="danger-message">Last error: @VDataStatus.LastError</span>
+            }
         </div>
 
         <div class="path-grid">
@@ -437,6 +451,7 @@
     private IReadOnlyList<CompletedDraftStatsRecord> CompletedDraftStats = [];
     private DeadPackerStatus PackingStatus => DeadPackerService.GetStatus();
     private IReadOnlyList<ActiveDraftStatsRecord> ActiveDraftStats => RoomService.GetActiveDraftStats();
+    private DeadlockVDataUpdateStatus VDataStatus => VDataUpdateService.GetStatus();
 
     protected override void OnInitialized()
     {
@@ -466,6 +481,13 @@
     {
         var path = DataService.GenerateHeroIconList();
         Message = $"Generated {path}";
+    }
+
+    private async Task VerifyVData()
+    {
+        var result = await VDataUpdateService.VerifyNowAsync();
+        LoadEditorState();
+        Message = result.Message;
     }
 
     private void TestPackingTools()
@@ -506,6 +528,17 @@
     {
         CompletedDraftStats = DraftStatsService.GetCompletedDrafts();
     }
+
+    private static string FormatLocalTime(DateTime? utc) =>
+        utc is null ? "Never" : utc.Value.ToLocalTime().ToString("G");
+
+    private static string FormatLocalTime(DateTime utc) =>
+        utc.ToLocalTime().ToString("G");
+
+    private static string ShortCommit(string? commitHash) =>
+        string.IsNullOrWhiteSpace(commitHash)
+            ? "Unknown"
+            : commitHash.Length > 12 ? commitHash[..12] : commitHash;
 
     private void SaveGameRootPath()
     {

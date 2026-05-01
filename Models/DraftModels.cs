@@ -74,6 +74,22 @@ public sealed class DeadlockDataSnapshot
     public List<string> Errors { get; init; } = [];
 }
 
+public sealed record DeadlockVDataUpdateStatus(
+    bool IsRunning,
+    int UpdateIntervalMinutes,
+    DateTime? LastCheckedUtc,
+    DateTime? LastUpdatedUtc,
+    DateTime? LastReloadedUtc,
+    string? LatestCommitHash,
+    string Status,
+    string? LastError,
+    DateTime? LastErrorUtc);
+
+public sealed record DeadlockVDataCheckResult(
+    bool AlreadyRunning,
+    bool Updated,
+    string Message);
+
 public sealed class DeadlockBanList
 {
     public HashSet<string> BannedHeroes { get; init; } = new(StringComparer.Ordinal);
