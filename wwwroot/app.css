@@ -660,6 +660,103 @@ h3 {
     letter-spacing: .08em;
 }
 
+.stats-bool {
+    font-weight: 800;
+}
+
+.stats-bool.yes {
+    color: var(--green);
+}
+
+.stats-bool.no {
+    color: var(--red);
+}
+
+.stats-expand-cell {
+    width: 1%;
+    text-align: right !important;
+}
+
+.stats-expand-button {
+    min-height: 28px;
+    width: 30px;
+    padding: .15rem .25rem;
+}
+
+.stats-expand-button::before {
+    content: "";
+    display: block;
+    width: 0;
+    height: 0;
+    border-top: 5px solid transparent;
+    border-bottom: 5px solid transparent;
+    border-left: 7px solid var(--text);
+    transition: transform .16s ease;
+}
+
+.stats-expand-button.expanded::before {
+    transform: rotate(90deg);
+}
+
+.stats-participants-row td {
+    background: rgba(255, 255, 255, .03);
+}
+
+.stats-participants-panel {
+    display: grid;
+    gap: .45rem;
+}
+
+.stats-participants-panel > strong {
+    color: var(--muted);
+    font-size: .78rem;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+}
+
+.stats-participants-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .45rem;
+}
+
+.stats-participant-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+    border: 1px solid rgba(255, 255, 255, .1);
+    border-radius: 6px;
+    background: rgba(0, 0, 0, .24);
+    padding: .28rem .45rem;
+}
+
+.stats-participant-chip strong {
+    overflow-wrap: anywhere;
+}
+
+.stats-participant-chip em {
+    font-style: normal;
+    font-size: .75rem;
+    font-weight: 900;
+}
+
+.stats-participant-chip em.hidden-king {
+    color: var(--hidden-king);
+}
+
+.stats-participant-chip em.archmother {
+    color: var(--archmother);
+}
+
+.stats-participant-chip em.unknown-team {
+    color: var(--muted);
+}
+
+.data-missing {
+    color: var(--muted);
+    font-style: italic;
+}
+
 .stats-actions {
     margin-top: .75rem;
 }

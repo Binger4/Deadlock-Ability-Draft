@@ -120,16 +120,36 @@
                                 <th>Host</th>
                                 <th>Code</th>
                                 <th>Players</th>
+                                <th>Draft mode</th>
+                                <th>Bots enabled</th>
+                                <th></th>
                             </tr>
                         </thead>
                         <tbody>
                             @foreach (var draft in ActiveDraftStats)
                             {
+                                var expanded = ExpandedActiveDrafts.Contains(draft.DraftCode);
                                 <tr>
                                     <td>@draft.HostName</td>
                                     <td><code>@draft.DraftCode</code></td>
                                     <td>@draft.PlayerCount</td>
+                                    <td>@draft.DraftMode</td>
+                                    <td><span class="@BoolValueClass(draft.AllowEmptySlotsAsBots)">@FormatBool(draft.AllowEmptySlotsAsBots)</span></td>
+                                    <td class="stats-expand-cell">
+                                        <button class="stats-expand-button @(expanded ? "expanded" : "")" title="Toggle participants" aria-label="Toggle participants" @onclick="() => ToggleActiveDraft(draft.DraftCode)"></button>
+                                    </td>
                                 </tr>
+                                @if (expanded)
+                                {
+                                    <tr class="stats-participants-row">
+                                        <td colspan="6">
+                                            <div class="stats-participants-panel">
+                                                <strong>Participants</strong>
+                                                @ParticipantList(draft.Participants)
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
                             }
                         </tbody>
                     </table>
@@ -151,13 +171,13 @@
                         <div class="confirm-box inline-confirm">
                             <strong>Clear completed draft history?</strong>
                             <span>This only clears <code>Data/Stats/completed-drafts.json</code>.</span>
-                            <button class="success-action" @onclick="ConfirmClearCompletedStats">Clear all</button>
-                            <button @onclick="CancelClearCompletedStats">Cancel</button>
+                            <button class="danger-action" @onclick="ConfirmClearCompletedStats">Clear all</button>
+                            <button class="success-action" @onclick="CancelClearCompletedStats">Cancel</button>
                         </div>
                     }
                     else
                     {
-                        <button class="success-action" @onclick="RequestClearCompletedStats" disabled="@(CompletedDraftStats.Count == 0)">Clear all</button>
+                        <button class="danger-action" @onclick="RequestClearCompletedStats" disabled="@(CompletedDraftStats.Count == 0)">Clear all</button>
                     }
                 </div>
                 @if (CompletedDraftStats.Count == 0)
@@ -172,18 +192,46 @@
                                 <th>Host</th>
                                 <th>Code</th>
                                 <th>Players</th>
+                                <th>Draft mode</th>
+                                <th>Bots enabled</th>
                                 <th>Completed</th>
+                                <th></th>
                             </tr>
                         </thead>
                         <tbody>
                             @foreach (var draft in CompletedDraftStats)
                             {
+                                var draftKey = CompletedDraftKey(draft);
+                                var expanded = ExpandedCompletedDrafts.Contains(draftKey);
                                 <tr>
                                     <td>@draft.HostName</td>
                                     <td><code>@draft.DraftCode</code></td>
                                     <td>@draft.PlayerCount</td>
+                                    <td>@MissingFallback(draft.DraftMode)</td>
+                                    <td><span class="@OptionalBoolValueClass(draft.AllowEmptySlotsAsBots)">@FormatOptionalBool(draft.AllowEmptySlotsAsBots)</span></td>
                                     <td>@draft.CompletedUtc.ToLocalTime()</td>
+                                    <td class="stats-expand-cell">
+                                        <button class="stats-expand-button @(expanded ? "expanded" : "")" title="Toggle participants" aria-label="Toggle participants" @onclick="() => ToggleCompletedDraft(draftKey)"></button>
+                                    </td>
                                 </tr>
+                                @if (expanded)
+                                {
+                                    <tr class="stats-participants-row">
+                                        <td colspan="7">
+                                            <div class="stats-participants-panel">
+                                                <strong>Participants</strong>
+                                                @if (draft.Participants is null)
+                                                {
+                                                    <span class="data-missing">Data missing</span>
+                                                }
+                                                else
+                                                {
+                                                    @ParticipantList(draft.Participants)
+                                                }
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
                             }
                         </tbody>
                     </table>
@@ -214,7 +262,7 @@
                 <strong class="@(PackingStatus.ResourceCompilerExists ? "ready-text" : "not-ready-text")">@(PackingStatus.ResourceCompilerExists ? "Found" : "Missing")</strong>
             </label>
             <label>
-                <span>Deadlock game folder</span>
+                <span>Reduced CSDK game folder</span>
                 <code>@(string.IsNullOrWhiteSpace(PackingStatus.GameRootPath) ? "Not configured" : PackingStatus.GameRootPath)</code>
                 <strong class="@(PackingStatus.GameRootValid ? "ready-text" : "not-ready-text")">@(PackingStatus.GameRootValid ? "Valid" : PackingStatus.GameRootExists ? "Incomplete" : "Missing")</strong>
             </label>
@@ -236,11 +284,11 @@
         </div>
 
         <div class="game-root-config">
-            <h3>Select Deadlock game folder</h3>
-            <p>Paste the <code>game</code> folder from your Reduced SDK or Deadlock install. For the current local setup this can be <code>..\Reduced_CSDK_12\game</code>.</p>
+            <h3>Select Reduced CSDK game folder</h3>
+            <p>Paste the <code>game</code> folder from your Deadlock Reduced CSDK. For the current local setup this can be <code>..\Reduced_CSDK_12\game</code>.</p>
             <div class="inline-form">
-                <input placeholder="C:\Program Files (x86)\Steam\steamapps\common\Deadlock\game" @bind="GameRootPathInput" @bind:event="oninput" />
-                <button class="primary" @onclick="SaveGameRootPath">Save game path</button>
+                <input placeholder="C:\Reduced_CSDK_12\game" @bind="GameRootPathInput" @bind:event="oninput" />
+                <button class="primary" @onclick="SaveGameRootPath">Save CSDK path</button>
             </div>
             @if (PackingStatus.GameRootMissingItems.Count > 0)
             {
@@ -448,6 +496,8 @@
     private Dictionary<string, string> AbilityOverrides = new(StringComparer.Ordinal);
     private string GameRootPathInput = string.Empty;
     private bool ShowClearStatsConfirmation;
+    private HashSet<string> ExpandedActiveDrafts = new(StringComparer.OrdinalIgnoreCase);
+    private HashSet<string> ExpandedCompletedDrafts = new(StringComparer.OrdinalIgnoreCase);
     private IReadOnlyList<CompletedDraftStatsRecord> CompletedDraftStats = [];
     private DeadPackerStatus PackingStatus => DeadPackerService.GetStatus();
     private IReadOnlyList<ActiveDraftStatsRecord> ActiveDraftStats => RoomService.GetActiveDraftStats();
@@ -506,6 +556,22 @@
         ShowClearStatsConfirmation = false;
     }
 
+    private void ToggleActiveDraft(string draftCode)
+    {
+        if (!ExpandedActiveDrafts.Add(draftCode))
+        {
+            ExpandedActiveDrafts.Remove(draftCode);
+        }
+    }
+
+    private void ToggleCompletedDraft(string draftKey)
+    {
+        if (!ExpandedCompletedDrafts.Add(draftKey))
+        {
+            ExpandedCompletedDrafts.Remove(draftKey);
+        }
+    }
+
     private void RefreshDraftStats()
     {
         LoadCompletedStats();
@@ -540,12 +606,67 @@
             ? "Unknown"
             : commitHash.Length > 12 ? commitHash[..12] : commitHash;
 
+    private static string CompletedDraftKey(CompletedDraftStatsRecord draft) =>
+        $"{draft.DraftCode}:{draft.CompletedUtc:O}";
+
+    private static string FormatBool(bool value) => value ? "Yes" : "No";
+
+    private static string FormatOptionalBool(bool? value) =>
+        value is null ? "Data missing" : FormatBool(value.Value);
+
+    private static string BoolValueClass(bool value) =>
+        value ? "stats-bool yes" : "stats-bool no";
+
+    private static string OptionalBoolValueClass(bool? value) =>
+        value is null ? "data-missing" : BoolValueClass(value.Value);
+
+    private static string MissingFallback(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? "Data missing" : value;
+
+    private static string ParticipantTeamClass(string team) => team.Trim().TrimEnd('*').ToUpperInvariant() switch
+    {
+        "HK" => "hidden-king",
+        "AM" => "archmother",
+        _ => "unknown-team"
+    };
+
+    private static RenderFragment ParticipantList(IReadOnlyList<DraftStatsParticipantRecord> participants) => builder =>
+    {
+        var sequence = 0;
+        if (participants.Count == 0)
+        {
+            builder.OpenElement(sequence++, "span");
+            builder.AddAttribute(sequence++, "class", "data-missing");
+            builder.AddContent(sequence++, "No participants");
+            builder.CloseElement();
+            return;
+        }
+
+        builder.OpenElement(sequence++, "div");
+        builder.AddAttribute(sequence++, "class", "stats-participants-list");
+        foreach (var participant in participants)
+        {
+            builder.OpenElement(sequence++, "span");
+            builder.AddAttribute(sequence++, "class", "stats-participant-chip");
+            builder.OpenElement(sequence++, "strong");
+            builder.AddContent(sequence++, participant.Name);
+            builder.CloseElement();
+            builder.OpenElement(sequence++, "em");
+            builder.AddAttribute(sequence++, "class", ParticipantTeamClass(participant.Team));
+            builder.AddContent(sequence++, participant.Team);
+            builder.CloseElement();
+            builder.CloseElement();
+        }
+
+        builder.CloseElement();
+    };
+
     private void SaveGameRootPath()
     {
         try
         {
             DeadPackerService.SaveGameRootPath(GameRootPathInput);
-            Message = "Deadlock game folder saved.";
+            Message = "Deadlock Reduced CSDK folder saved.";
         }
         catch (Exception ex)
         {

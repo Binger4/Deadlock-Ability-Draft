@@ -19,7 +19,7 @@
     <section class="form-panel create-panel">
         <div class="server-status @(Snapshot.IsLoaded ? "ok" : "bad")">
             <strong>@(Snapshot.IsLoaded ? "Server data ready" : "Server data missing")</strong>
-            <span>@(Snapshot.Data?.Heroes.Count ?? 0) heroes - @(Snapshot.Data?.Abilities.Count ?? 0) abilities - @Snapshot.Bans.BannedHeroes.Count banned heroes - @Snapshot.Bans.BannedAbilities.Count banned abilities</span>
+            <span>@(Snapshot.Data?.Heroes.Count ?? 0) heroes - @(Snapshot.Data?.Abilities.Count ?? 0) abilities - @Snapshot.Bans.BannedHeroes.Count banned heroes - @BannedAbilityCount banned abilities</span>
         </div>
         @if (Snapshot.Errors.Count > 0)
         {
@@ -85,6 +85,15 @@
     private bool AllowHostOverride;
     private string Message = string.Empty;
     private DeadlockDataSnapshot Snapshot => DataService.Current;
+    private int BannedAbilityCount => Snapshot.Data is null
+        ? Snapshot.Bans.BannedAbilities.Count
+        : Snapshot.Bans.BannedAbilities
+            .Concat(Snapshot.Data.Abilities
+                .Where(ability => ability.PickKind is DraftPickKind.RegularAbility or DraftPickKind.UltimateAbility)
+                .Where(ability => DraftPoolGenerator.IsAbilityAutoBanned(ability, Snapshot.Data))
+                .Select(ability => ability.Key))
+            .Distinct(StringComparer.Ordinal)
+            .Count();
 
     private void Create()
     {

@@ -402,7 +402,10 @@ public sealed class DraftRoomService(
                 records.Add(new ActiveDraftStatsRecord(
                     HostName(room),
                     room.Code,
-                    DraftTurnService.ActiveSlots(room).Count()));
+                    DraftTurnService.ActiveSlots(room).Count(),
+                    DraftModeLabel(room.Config.DraftMode),
+                    room.Config.AllowEmptySlotsAsBots,
+                    StatsParticipants(room)));
             }
         }
 
@@ -1531,6 +1534,32 @@ public sealed class DraftRoomService(
         ?? room.Players.FirstOrDefault(player => player.IsHost)?.DisplayName
         ?? "Unknown";
 
+    private static List<DraftStatsParticipantRecord> StatsParticipants(DraftRoom room) =>
+        DraftTurnService.ActiveSlots(room)
+            .Where(player => !player.IsBot)
+            .OrderBy(player => player.Team)
+            .ThenBy(player => player.TeamIndex())
+            .Select(player => new DraftStatsParticipantRecord(player.NameOrFallback, StatsTeamCode(player)))
+            .ToList();
+
+    private static string DraftModeLabel(DraftMode mode) => mode switch
+    {
+        DraftMode.FreePick => "Free Pick",
+        DraftMode.Classic => "Classic",
+        DraftMode.RandomHero => "Random Hero",
+        _ => "Unknown"
+    };
+
+    private static string TeamCode(DeadlockTeam team) => team switch
+    {
+        DeadlockTeam.HiddenKing => "HK",
+        DeadlockTeam.Archmother => "AM",
+        _ => "Unknown"
+    };
+
+    private static string StatsTeamCode(DraftPlayerSlot player) =>
+        player.IsHost ? $"{TeamCode(player.Team)}*" : TeamCode(player.Team);
+
     private static int PositiveOrDefault(params int[] values)
     {
         foreach (var value in values)
@@ -1762,10 +1791,10 @@ public sealed class DeadPackerService(IOptions<DeadPackerOptions> options, IWebH
         builder.AppendLine($"DeadPacker enabled: {status.Enabled}");
         builder.AppendLine($"DeadPacker.exe: {(status.ExecutableExists ? "found" : "missing")} - {status.ExecutablePath}");
         builder.AppendLine($"resourcecompiler.exe: {(status.ResourceCompilerExists ? "found" : "missing")} - {status.ResourceCompilerPath}");
-        builder.AppendLine($"Deadlock game root: {(status.GameRootValid ? "valid" : status.GameRootExists ? "incomplete" : status.GameRootConfigured ? "missing" : "not configured")} - {(string.IsNullOrWhiteSpace(status.GameRootPath) ? "(blank)" : status.GameRootPath)}");
+        builder.AppendLine($"Deadlock Reduced CSDK root: {(status.GameRootValid ? "valid" : status.GameRootExists ? "incomplete" : status.GameRootConfigured ? "missing" : "not configured")} - {(string.IsNullOrWhiteSpace(status.GameRootPath) ? "(blank)" : status.GameRootPath)}");
         foreach (var missing in status.GameRootMissingItems)
         {
-            builder.AppendLine($"Deadlock game root missing: {missing}");
+            builder.AppendLine($"Deadlock Reduced CSDK root missing: {missing}");
         }
 
         var compilerSupportFile = FindCompilerSupportFile(status.ResourceCompilerPath);
@@ -1800,7 +1829,7 @@ public sealed class DeadPackerService(IOptions<DeadPackerOptions> options, IWebH
         var validation = ValidateGameRootPath(resolved);
         if (!validation.IsValid)
         {
-            throw new InvalidOperationException($"Invalid Deadlock game folder. Missing: {string.Join(", ", validation.MissingItems)}");
+            throw new InvalidOperationException($"Invalid Deadlock Reduced CSDK folder. Missing: {string.Join(", ", validation.MissingItems)}");
         }
 
         var effective = GetEffectiveOptions();
@@ -1864,8 +1893,8 @@ public sealed class DeadPackerService(IOptions<DeadPackerOptions> options, IWebH
             var gameRootValidation = ValidateGameRootPath(gameRootPath ?? string.Empty);
             if (!gameRootValidation.IsValid)
             {
-                var missing = gameRootValidation.MissingItems.Count == 0 ? "Deadlock game path is not configured." : string.Join(", ", gameRootValidation.MissingItems);
-                return Fail($"Invalid Deadlock game folder. {missing}");
+                var missing = gameRootValidation.MissingItems.Count == 0 ? "Deadlock Reduced CSDK path is not configured." : string.Join(", ", gameRootValidation.MissingItems);
+                return Fail($"Invalid Deadlock Reduced CSDK folder. {missing}");
             }
 
             var compilerSupportFile = FindCompilerSupportFile(resourceCompilerPath);
@@ -2438,7 +2467,7 @@ public sealed class DeadPackerService(IOptions<DeadPackerOptions> options, IWebH
         var missing = new List<string>();
         if (string.IsNullOrWhiteSpace(path))
         {
-            missing.Add("Deadlock game path is not configured.");
+            missing.Add("Deadlock Reduced CSDK path is not configured.");
             return new GameRootValidation(false, missing);
         }
 
@@ -2503,9 +2532,9 @@ public sealed class DeadPackerService(IOptions<DeadPackerOptions> options, IWebH
         {
             diagnostics.Add(new PackingDiagnostic(
                 "Error",
-                "Deadlock game folder is not configured correctly.",
+                "Deadlock Reduced CSDK folder is not configured correctly.",
                 string.IsNullOrWhiteSpace(gameRootPath) ? null : gameRootPath,
-                $"Select the real Deadlock game folder. Missing: {missing}"));
+                $"Select the Deadlock Reduced CSDK game folder. Missing: {missing}"));
         }
 
         foreach (var logPath in RecentPackingLogs(logDirectory, Path.Combine(Path.GetDirectoryName(Resolve(config.OutputVpkPath)) ?? environment.ContentRootPath, "Rooms")))
@@ -2602,7 +2631,7 @@ public sealed class DeadPackerService(IOptions<DeadPackerOptions> options, IWebH
                 "Error",
                 "resourcecompiler could not load or parse gameinfo.gi.",
                 logPath,
-                "Set the Deadlock game folder to the real Steam Deadlock/game path. The app will regenerate a no-BOM temporary gameinfo.gi.");
+                "Set the path to the Deadlock Reduced CSDK game folder. The app will regenerate a no-BOM temporary gameinfo.gi.");
         }
 
         if (text.Contains("Exit code: 1", StringComparison.OrdinalIgnoreCase) ||
@@ -2641,7 +2670,7 @@ public sealed class DeadPackerService(IOptions<DeadPackerOptions> options, IWebH
 
         if (!string.IsNullOrWhiteSpace(gameRootPath) && !Directory.Exists(gameRootPath))
         {
-            log.AppendLine($"WARNING: configured Deadlock game root does not exist: {gameRootPath}");
+            log.AppendLine($"WARNING: configured Deadlock Reduced CSDK root does not exist: {gameRootPath}");
         }
 
         File.WriteAllText(gameInfoPath, BuildMinimalGameInfo(addonName, gameRootPath), new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));

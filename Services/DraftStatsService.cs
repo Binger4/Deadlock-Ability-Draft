@@ -31,11 +31,16 @@ public sealed class DraftStatsService(
             return;
         }
 
-        var record = new CompletedDraftStatsRecord(
-            HostName(room),
-            room.Code,
-            DraftTurnService.ActiveSlots(room).Count(),
-            DateTime.UtcNow);
+        var record = new CompletedDraftStatsRecord
+        {
+            HostName = HostName(room),
+            DraftCode = room.Code,
+            PlayerCount = DraftTurnService.ActiveSlots(room).Count(),
+            CompletedUtc = DateTime.UtcNow,
+            DraftMode = DraftModeLabel(room.Config.DraftMode),
+            AllowEmptySlotsAsBots = room.Config.AllowEmptySlotsAsBots,
+            Participants = StatsParticipants(room)
+        };
 
         lock (_lock)
         {
@@ -74,7 +79,7 @@ public sealed class DraftStatsService(
 
         try
         {
-            return JsonSerializer.Deserialize<List<CompletedDraftStatsRecord>>(File.ReadAllText(path, Encoding.UTF8), JsonOptions()) ?? [];
+            return ParseCompletedDrafts(File.ReadAllText(path, Encoding.UTF8));
         }
         catch (Exception ex)
         {
@@ -87,7 +92,7 @@ public sealed class DraftStatsService(
     {
         var path = CompletedDraftsPath();
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        File.WriteAllText(path, JsonSerializer.Serialize(records, JsonOptions()), Encoding.UTF8);
+        File.WriteAllText(path, FormatCompletedDrafts(records), Encoding.UTF8);
     }
 
     private string CompletedDraftsPath() =>
@@ -98,9 +103,167 @@ public sealed class DraftStatsService(
         ?? room.Players.FirstOrDefault(player => player.IsHost)?.DisplayName
         ?? "Unknown";
 
-    private static JsonSerializerOptions JsonOptions() => new()
+    private static List<DraftStatsParticipantRecord> StatsParticipants(DraftRoom room) =>
+        DraftTurnService.ActiveSlots(room)
+            .Where(player => !player.IsBot)
+            .OrderBy(player => player.Team)
+            .ThenBy(player => player.TeamIndex())
+            .Select(player => new DraftStatsParticipantRecord(player.NameOrFallback, StatsTeamCode(player)))
+            .ToList();
+
+    private static string DraftModeLabel(DraftMode mode) => mode switch
     {
-        WriteIndented = true,
+        DraftMode.FreePick => "Free Pick",
+        DraftMode.Classic => "Classic",
+        DraftMode.RandomHero => "Random Hero",
+        _ => "Unknown"
+    };
+
+    private static string TeamCode(DeadlockTeam team) => team switch
+    {
+        DeadlockTeam.HiddenKing => "HK",
+        DeadlockTeam.Archmother => "AM",
+        _ => "Unknown"
+    };
+
+    private static string StatsTeamCode(DraftPlayerSlot player) =>
+        player.IsHost ? $"{TeamCode(player.Team)}*" : TeamCode(player.Team);
+
+    private static List<CompletedDraftStatsRecord> ParseCompletedDrafts(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        if (document.RootElement.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        var records = new List<CompletedDraftStatsRecord>();
+        foreach (var element in document.RootElement.EnumerateArray())
+        {
+            if (element.ValueKind != JsonValueKind.Object)
+            {
+                continue;
+            }
+
+            records.Add(new CompletedDraftStatsRecord
+            {
+                HostName = GetString(element, "hostName"),
+                DraftCode = GetString(element, "draftCode"),
+                PlayerCount = GetInt(element, "playerCount"),
+                DraftMode = GetNullableString(element, "draftMode"),
+                AllowEmptySlotsAsBots = GetNullableBool(element, "botsEnabled") ?? GetNullableBool(element, "allowEmptySlotsAsBots"),
+                Participants = GetParticipants(element, "players") ?? GetParticipants(element, "participants"),
+                CompletedUtc = GetDateTime(element, "completedUtc")
+            });
+        }
+
+        return records;
+    }
+
+    private static string FormatCompletedDrafts(IReadOnlyList<CompletedDraftStatsRecord> records)
+    {
+        if (records.Count == 0)
+        {
+            return "[]";
+        }
+
+        var builder = new StringBuilder();
+        builder.AppendLine("[");
+        for (var i = 0; i < records.Count; i++)
+        {
+            var record = records[i];
+            var lines = new List<string>
+            {
+                $"    \"hostName\": {Json(record.HostName)}",
+                $"    \"draftCode\": {Json(record.DraftCode)}",
+                $"    \"playerCount\": {record.PlayerCount}"
+            };
+
+            if (!string.IsNullOrWhiteSpace(record.DraftMode))
+            {
+                lines.Add($"    \"draftMode\": {Json(record.DraftMode)}");
+            }
+
+            if (record.AllowEmptySlotsAsBots is not null)
+            {
+                lines.Add($"    \"botsEnabled\": {Json(record.AllowEmptySlotsAsBots.Value)}");
+            }
+
+            if (record.Participants is not null)
+            {
+                lines.Add($"    \"players\": {Json(record.Participants)}");
+            }
+
+            lines.Add($"    \"completedUtc\": {Json(record.CompletedUtc)}");
+
+            builder.AppendLine("  {");
+            for (var lineIndex = 0; lineIndex < lines.Count; lineIndex++)
+            {
+                builder.Append(lines[lineIndex]);
+                builder.AppendLine(lineIndex == lines.Count - 1 ? string.Empty : ",");
+            }
+
+            builder.Append("  }");
+            builder.AppendLine(i == records.Count - 1 ? string.Empty : ",");
+        }
+
+        builder.AppendLine("]");
+        return builder.ToString();
+    }
+
+    private static List<DraftStatsParticipantRecord>? GetParticipants(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var property) || property.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        var participants = new List<DraftStatsParticipantRecord>();
+        foreach (var participant in property.EnumerateArray())
+        {
+            if (participant.ValueKind != JsonValueKind.Object)
+            {
+                continue;
+            }
+
+            participants.Add(new DraftStatsParticipantRecord(
+                GetString(participant, "name"),
+                GetString(participant, "team")));
+        }
+
+        return participants;
+    }
+
+    private static string GetString(JsonElement element, string propertyName) =>
+        element.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.String
+            ? property.GetString() ?? string.Empty
+            : string.Empty;
+
+    private static string? GetNullableString(JsonElement element, string propertyName) =>
+        element.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.String
+            ? property.GetString()
+            : null;
+
+    private static int GetInt(JsonElement element, string propertyName) =>
+        element.TryGetProperty(propertyName, out var property) && property.TryGetInt32(out var value)
+            ? value
+            : 0;
+
+    private static bool? GetNullableBool(JsonElement element, string propertyName) =>
+        element.TryGetProperty(propertyName, out var property) && property.ValueKind is JsonValueKind.True or JsonValueKind.False
+            ? property.GetBoolean()
+            : null;
+
+    private static DateTime GetDateTime(JsonElement element, string propertyName) =>
+        element.TryGetProperty(propertyName, out var property) && property.TryGetDateTime(out var value)
+            ? value
+            : default;
+
+    private static string Json<T>(T value) => JsonSerializer.Serialize(value, JsonOptions);
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        WriteIndented = false,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
 }

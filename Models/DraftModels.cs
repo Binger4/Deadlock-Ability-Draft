@@ -294,8 +294,25 @@ public sealed record DraftTurn(int SlotNumber, DraftPickKind PickKind, int Round
 public sealed record DraftPickRecord(int SlotNumber, DraftPickKind PickKind, string PickedKey, DateTime PickedUtc);
 public sealed record DraftSoundEvent(int Id, DraftSoundScope Scope, string SoundPath, string? TargetPlayerId, DateTime CreatedUtc);
 public sealed record JoinRoomResult(string RoomCode, string PlayerId, int? SlotNumber);
-public sealed record ActiveDraftStatsRecord(string HostName, string DraftCode, int PlayerCount);
-public sealed record CompletedDraftStatsRecord(string HostName, string DraftCode, int PlayerCount, DateTime CompletedUtc);
+public sealed record DraftStatsParticipantRecord(string Name, string Team);
+public sealed record ActiveDraftStatsRecord(
+    string HostName,
+    string DraftCode,
+    int PlayerCount,
+    string DraftMode,
+    bool AllowEmptySlotsAsBots,
+    IReadOnlyList<DraftStatsParticipantRecord> Participants);
+
+public sealed class CompletedDraftStatsRecord
+{
+    public string HostName { get; set; } = string.Empty;
+    public string DraftCode { get; set; } = string.Empty;
+    public int PlayerCount { get; set; }
+    public DateTime CompletedUtc { get; set; }
+    public string? DraftMode { get; set; }
+    public bool? AllowEmptySlotsAsBots { get; set; }
+    public List<DraftStatsParticipantRecord>? Participants { get; set; }
+}
 public sealed record GeneratedModFile(string Path, string Content);
 public sealed record DeadPackerStatus(
     bool Enabled,

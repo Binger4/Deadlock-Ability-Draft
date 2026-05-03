@@ -284,9 +284,9 @@ else
             {
                 <section class="modal-backdrop">
                     <div class="modal-card game-root-modal">
-                        <h2>Select Deadlock game folder</h2>
-                        <p>Open Deadlock in Steam -> Properties -> Installed Files -> Browse. Go to the <code>game</code> folder and copy its path. Paste it here.</p>
-                        <input placeholder="C:\Program Files (x86)\Steam\steamapps\common\Deadlock\game" @bind="GameRootPathInput" @bind:event="oninput" />
+                        <h2>Deadlock Reduced CSDK files missing</h2>
+                        <p>Deadlock Reduced CSDK files were not found. Please provide the path to your Deadlock Reduced CSDK folder if you want to generate a VPK. You can click Continue if you only want to generate a ZIP file.</p>
+                        <input placeholder="C:\Reduced_CSDK_12\game" @bind="GameRootPathInput" @bind:event="oninput" />
                         @if (GameRootMissingItems.Count > 0)
                         {
                             <div class="warnings compact">
@@ -297,8 +297,8 @@ else
                             </div>
                         }
                         <div class="modal-actions">
-                            <button class="primary" @onclick="SaveGameRootPath">Save path</button>
-                            <button @onclick="() => ShowGameRootModal = false">Close</button>
+                            <button class="primary" @onclick="SaveGameRootPath">Save CSDK path</button>
+                            <button @onclick="() => ShowGameRootModal = false">Continue</button>
                         </div>
                     </div>
                 </section>
@@ -960,7 +960,7 @@ else
             var status = DeadPackerService.SaveGameRootPath(GameRootPathInput);
             GameRootMissingItems = status.GameRootMissingItems;
             ShowGameRootModal = !status.GameRootValid;
-            SetMessage(status.GameRootValid ? "Deadlock game folder saved. You can generate files again." : "Deadlock game folder is still invalid.");
+            SetMessage(status.GameRootValid ? "Deadlock Reduced CSDK folder saved. You can generate files again." : "Deadlock Reduced CSDK folder is still invalid.");
         }
         catch (Exception ex)
         {
