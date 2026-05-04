@@ -172,14 +172,10 @@ public sealed class DraftTurnService
                 break;
             case DraftMode.RandomHero:
                 var abilityRound = 1;
-                for (var i = 0; i < room.Config.RegularAbilityPicksPerPlayer; i++, abilityRound++)
+                var abilityRounds = room.Config.RegularAbilityPicksPerPlayer + room.Config.UltimatePicksPerPlayer;
+                for (var i = 0; i < abilityRounds; i++, abilityRound++)
                 {
-                    turns.AddRange(SnakeTeamSlotNumbers(room, abilityRound).Select(slot => new DraftTurn(slot, DraftPickKind.RegularAbility, abilityRound)));
-                }
-
-                for (var i = 0; i < room.Config.UltimatePicksPerPlayer; i++, abilityRound++)
-                {
-                    turns.AddRange(SnakeTeamSlotNumbers(room, abilityRound).Select(slot => new DraftTurn(slot, DraftPickKind.UltimateAbility, abilityRound)));
+                    turns.AddRange(SnakeTeamSlotNumbers(room, abilityRound).Select(slot => new DraftTurn(slot, DraftPickKind.AnyAbility, abilityRound)));
                 }
                 break;
         }
@@ -958,13 +954,19 @@ public sealed class DraftRoomService(
 
     private void ValidatePick(DraftRoom room, DraftPlayerSlot slot, string pickedKey, DraftPickKind actualKind, DraftPickKind requiredKind)
     {
-        if (requiredKind != DraftPickKind.Any && actualKind != requiredKind)
+        if (requiredKind == DraftPickKind.AnyAbility && actualKind is not (DraftPickKind.RegularAbility or DraftPickKind.UltimateAbility))
+        {
+            throw new InvalidOperationException("This turn requires an ability.");
+        }
+
+        if (requiredKind is not (DraftPickKind.Any or DraftPickKind.AnyAbility) && actualKind != requiredKind)
         {
             throw new InvalidOperationException(requiredKind switch
             {
                 DraftPickKind.Hero => "This turn requires a hero.",
                 DraftPickKind.UltimateAbility => "This turn requires an ultimate ability.",
                 DraftPickKind.RegularAbility => "This turn requires a regular ability.",
+                DraftPickKind.AnyAbility => "This turn requires an ability.",
                 _ => "That pick is not valid for this turn."
             });
         }
@@ -1154,7 +1156,11 @@ public sealed class DraftRoomService(
 
         if (playTurnSound)
         {
-            AddSound(room, DraftSoundScope.CurrentPlayer, TurnStartSound, CurrentTurnPlayerId(room));
+            var currentPlayerId = CurrentTurnPlayerId(room);
+            if (!string.IsNullOrWhiteSpace(currentPlayerId))
+            {
+                AddSound(room, DraftSoundScope.CurrentPlayer, TurnStartSound, currentPlayerId);
+            }
         }
     }
 
@@ -1193,7 +1199,7 @@ public sealed class DraftRoomService(
             candidates.AddRange(room.DraftHeroPoolKeys);
         }
 
-        if (requiredKind is DraftPickKind.Any or DraftPickKind.RegularAbility or DraftPickKind.UltimateAbility)
+        if (requiredKind is DraftPickKind.Any or DraftPickKind.AnyAbility or DraftPickKind.RegularAbility or DraftPickKind.UltimateAbility)
         {
             candidates.AddRange(room.DraftAbilityPoolKeys);
         }

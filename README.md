@@ -127,8 +127,8 @@ admin / admin
 Change it before hosting:
 
 ```text
-    "Username": "admin",
-    "Password": "admin"
+"Username": "admin",
+"Password": "admin"
 ```
 
 The admin panel also shows draft statistics. Active drafts are read from memory only. Completed draft history is saved to `Data/Stats/completed-drafts.json` when this config option is enabled:

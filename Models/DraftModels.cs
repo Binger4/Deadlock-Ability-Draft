@@ -367,6 +367,7 @@ public enum DraftMode
 public enum DraftPickKind
 {
     Any,
+    AnyAbility,
     Hero,
     RegularAbility,
     UltimateAbility,
