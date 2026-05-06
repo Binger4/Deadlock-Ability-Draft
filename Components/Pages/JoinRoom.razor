@@ -25,13 +25,20 @@
             <span>Your name</span>
             <input @bind="PlayerName" />
         </label>
-        <label>
-            <span>Your team</span>
-            <select @bind="SelectedTeam">
-                <option value="@DeadlockTeam.HiddenKing">The Hidden King</option>
-                <option value="@DeadlockTeam.Archmother">The Archmother</option>
-            </select>
-        </label>
+        @if (ReconnectOnly)
+        {
+            <p class="message">This draft already started. You can only reconnect with the exact same nickname as a disconnected player.</p>
+        }
+        else
+        {
+            <label>
+                <span>Your team</span>
+                <select @bind="SelectedTeam">
+                    <option value="@DeadlockTeam.HiddenKing">The Hidden King</option>
+                    <option value="@DeadlockTeam.Archmother">The Archmother</option>
+                </select>
+            </label>
+        }
         <button class="primary" @onclick="Join">Join room</button>
         @if (!string.IsNullOrWhiteSpace(Message))
         {
@@ -48,6 +55,8 @@
     private string PlayerName = string.Empty;
     private DeadlockTeam SelectedTeam = DeadlockTeam.HiddenKing;
     private string Message = string.Empty;
+    private DraftRoom? TargetRoom => string.IsNullOrWhiteSpace(RoomCode) ? null : RoomService.GetRoom(RoomCode);
+    private bool ReconnectOnly => TargetRoom?.Status == DraftRoomStatus.Drafting;
 
     protected override void OnParametersSet()
     {
@@ -62,7 +71,9 @@
         try
         {
             var result = RoomService.JoinRoom(RoomCode, PlayerName, SelectedTeam);
-            Nav.NavigateTo($"/room/{result.RoomCode}/lobby?playerId={result.PlayerId}");
+            var room = RoomService.GetRoom(result.RoomCode);
+            var view = room?.Status == DraftRoomStatus.Lobby ? "lobby" : "draft";
+            Nav.NavigateTo($"/room/{result.RoomCode}/{view}?playerId={result.PlayerId}");
         }
         catch (Exception ex)
         {

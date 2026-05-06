@@ -193,7 +193,7 @@ else
                         {
                             <span>@(CanPick ? "Your pick" : "Waiting for pick")</span>
                             <strong>
-                                <span>@CurrentTurnPlayer?.NameOrFallback drafts</span>
+                                <span class="@(IsLocalCurrentTurn ? "own-turn-name" : null)">@CurrentTurnPlayer?.NameOrFallback drafts</span>
                                 <span>@PickKindLabel(CurrentRoom.CurrentTurn?.PickKind ?? DraftPickKind.RegularAbility)</span>
                             </strong>
                         }
@@ -406,6 +406,10 @@ else
     private DraftClientSession? CurrentClient => CurrentRoom?.Clients.FirstOrDefault(player => player.PlayerId == PlayerId);
     private bool IsHost => CurrentClient?.IsHost == true;
     private bool CanPick => CurrentRoom is not null && RoomService.CanPlayerPickCurrentTurn(CurrentRoom, PlayerId);
+    private bool IsLocalCurrentTurn => CurrentTurnPlayer is not null &&
+                                       !CurrentTurnPlayer.IsDisconnected &&
+                                       !string.IsNullOrWhiteSpace(PlayerId) &&
+                                       string.Equals(CurrentTurnPlayer.PlayerId, PlayerId, StringComparison.Ordinal);
     private string CurrentClientLabel => CurrentClient is null ? "Unknown" : $"{CurrentClient.DisplayName}, {TeamName(CurrentClient.Team)}";
     private string MaskedRoomCode => CurrentRoom is null ? "******" : new string('*', Math.Max(6, CurrentRoom.Code.Length));
     private int IconCount => CurrentRoom is null ? 0 : CurrentRoom.DeadlockData.Heroes.Count(hero => !string.IsNullOrWhiteSpace(hero.IconDataUrl)) + CurrentRoom.DeadlockData.Abilities.Count(ability => !string.IsNullOrWhiteSpace(ability.IconDataUrl));
@@ -692,6 +696,10 @@ else
     {
         var hero = CurrentRoom?.DeadlockData.Heroes.FirstOrDefault(item => item.Key == player.HeroKey);
         var isTurn = CurrentRoom?.CurrentTurn?.SlotNumber == player.SlotNumber;
+        var isLocalOwnedTurn = isTurn &&
+                               !player.IsDisconnected &&
+                               !string.IsNullOrWhiteSpace(PlayerId) &&
+                               string.Equals(player.PlayerId, PlayerId, StringComparison.Ordinal);
         var canReorder = CurrentRoom is not null && RoomService.CanPlayerReorderSlot(CurrentRoom, PlayerId, player);
         var sequence = 0;
         builder.OpenElement(sequence++, "article");
@@ -727,6 +735,10 @@ else
         builder.AddContent(sequence++, HeroName(player.HeroKey).ToUpperInvariant());
         builder.CloseElement();
         builder.OpenElement(sequence++, "span");
+        if (isLocalOwnedTurn)
+        {
+            builder.AddAttribute(sequence++, "class", "own-turn-name");
+        }
         builder.AddContent(sequence++, player.NameOrFallback);
         builder.CloseElement();
         builder.OpenElement(sequence++, "small");

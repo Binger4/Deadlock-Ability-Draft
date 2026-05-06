@@ -492,7 +492,9 @@ public sealed class DraftRoomService(
         {
             if (room.Status != DraftRoomStatus.Lobby)
             {
-                throw new InvalidOperationException("This draft has already started.");
+                var reconnectResult = ReconnectStartedDraft(room, playerName);
+                Notify(room.Code);
+                return reconnectResult;
             }
 
             var result = AddClient(room, playerName, team, isHost: false);
@@ -1381,6 +1383,62 @@ public sealed class DraftRoomService(
         };
         room.Clients.Add(client);
         return new JoinRoomResult(room.Code, client.PlayerId, null);
+    }
+
+    private JoinRoomResult ReconnectStartedDraft(DraftRoom room, string playerName)
+    {
+        if (room.Status != DraftRoomStatus.Drafting)
+        {
+            throw new InvalidOperationException("This draft is no longer accepting players.");
+        }
+
+        var normalizedName = playerName.Trim();
+        if (string.IsNullOrWhiteSpace(normalizedName))
+        {
+            throw new InvalidOperationException("Enter your name before joining.");
+        }
+
+        var matches = room.Players
+            .Where(slot => slot.IsDisconnected &&
+                           !slot.IsBot &&
+                           !slot.IsHost &&
+                           string.Equals(slot.DisplayName, normalizedName, StringComparison.Ordinal))
+            .ToList();
+        if (matches.Count == 0)
+        {
+            throw new InvalidOperationException("Draft already started. You can only reconnect using the same nickname as a disconnected player.");
+        }
+
+        if (matches.Count > 1)
+        {
+            throw new InvalidOperationException("Multiple disconnected players use that nickname. Reconnect is ambiguous.");
+        }
+
+        var slot = matches[0];
+        var previousClient = room.Clients.FirstOrDefault(client => client.PlayerId == slot.PlayerId && !client.IsConnected);
+        if (previousClient is null)
+        {
+            throw new InvalidOperationException("Draft already started. You can only reconnect using the same nickname as a disconnected player.");
+        }
+
+        room.Clients.Remove(previousClient);
+        var client = new DraftClientSession
+        {
+            PlayerId = Guid.NewGuid().ToString("N"),
+            DisplayName = slot.DisplayName,
+            IsHost = false,
+            Team = slot.Team,
+            IsReady = slot.IsReady,
+            IsConnected = true,
+            SlotNumber = slot.SlotNumber,
+            LastSeenUtc = DateTime.UtcNow
+        };
+        room.Clients.Add(client);
+
+        slot.PlayerId = client.PlayerId;
+        slot.IsDisconnected = false;
+        slot.LastSeenUtc = client.LastSeenUtc;
+        return new JoinRoomResult(room.Code, client.PlayerId, slot.SlotNumber);
     }
 
     private void RemoveClientFromRoom(DraftRoom room, DraftClientSession client, string? notice, bool wasKicked)

@@ -13,14 +13,14 @@
     <link rel="stylesheet" href="@Assets["abilitydraft.styles.css"]" />
     <ImportMap />
     <link rel="icon" type="image/png" href="favicon.png" />
-    <meta property="og:title" content="Deadlock Ability Draft" />
-    <meta property="og:description" content="Create Deadlock draft rooms, draft heroes and abilities with friends, and export VPK files for custom Deadlock games." />
+    <meta property="og:title" content="@PreviewTitle" />
+    <meta property="og:description" content="@PreviewDescription" />
     <meta property="og:image" content="@PreviewImageUrl" />
-    <meta property="og:url" content="@SiteUrl" />
+    <meta property="og:url" content="@PreviewUrl" />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Deadlock Ability Draft" />
-    <meta name="twitter:description" content="Create Deadlock draft rooms, draft heroes and abilities with friends, and export VPK files for custom Deadlock games." />
+    <meta name="twitter:title" content="@PreviewTitle" />
+    <meta name="twitter:description" content="@PreviewDescription" />
     <meta name="twitter:image" content="@PreviewImageUrl" />
     <HeadOutlet />
 </head>
@@ -36,5 +36,12 @@
 
 @code {
     private string SiteUrl => Nav.BaseUri.TrimEnd('/');
-    private string PreviewImageUrl => new Uri(new Uri(Nav.BaseUri), "site-preview.png").AbsoluteUri;
+    private string RelativePath => Nav.ToBaseRelativePath(Nav.Uri).Split('?', '#')[0];
+    private bool IsJoinInvite => RelativePath.StartsWith("join/", StringComparison.OrdinalIgnoreCase);
+    private string PreviewTitle => IsJoinInvite ? "Deadlock Ability Draft Invite" : "Deadlock Ability Draft";
+    private string PreviewDescription => IsJoinInvite
+        ? "Join a Deadlock Ability Draft room and draft heroes and abilities with friends."
+        : "Create Deadlock draft rooms, draft heroes and abilities with friends, and export VPK files for custom Deadlock games.";
+    private string PreviewImageUrl => new Uri(new Uri(Nav.BaseUri), IsJoinInvite ? "join-preview.png" : "site-preview.png").AbsoluteUri;
+    private string PreviewUrl => IsJoinInvite ? Nav.Uri.Split('?', '#')[0] : SiteUrl;
 }

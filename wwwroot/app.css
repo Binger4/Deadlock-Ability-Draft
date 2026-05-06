@@ -1210,6 +1210,11 @@ h3 {
     overflow-wrap: anywhere;
 }
 
+.player-info span.own-turn-name {
+    color: var(--green);
+    font-weight: 800;
+}
+
 .player-meta {
     color: var(--muted);
 }
@@ -1334,6 +1339,10 @@ h3 {
     color: var(--text);
     text-transform: none;
     letter-spacing: 0;
+}
+
+.draft-callout strong span.own-turn-name {
+    color: var(--green);
 }
 
 .draft-timer-panel {
