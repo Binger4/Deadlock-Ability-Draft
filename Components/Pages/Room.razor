@@ -42,7 +42,7 @@ else
     <main class="draft-shell arena-bg">
         <section class="room-topbar compact-topbar">
             <div>
-                <a href="/">Home</a>
+                <a href="/" @onclick="DisconnectAndGoHome" @onclick:preventDefault="true">Home</a>
                 <p class="eyebrow">@CurrentRoom.Status</p>
                 <h1>@CurrentRoom.Name</h1>
                 <div class="room-share-row">
@@ -85,7 +85,18 @@ else
                     <h2>Lobby</h2>
                     <p>@CurrentRoom.DeadlockData.Heroes.Count heroes and @CurrentRoom.DeadlockData.Abilities.Count abilities parsed.</p>
                     <p>Mode: <strong>@ModeLabel(CurrentRoom.Config.DraftMode)</strong></p>
-                    <p>Duplicates: <strong>@(CurrentRoom.Config.AllowDuplicateAbilities ? "Allowed" : "Blocked")</strong></p>
+                    @if (CurrentRoom.Config.DraftMode == DraftMode.Custom)
+                    {
+                        <p>Max players: <strong>@CurrentRoom.Config.MaxPlayers</strong></p>
+                        <p>Hero pool: <strong>@CurrentRoom.Config.HeroPoolSize</strong></p>
+                        <p>Ability duplicates: <strong>@(CurrentRoom.Config.AllowDuplicateAbilities ? "Allowed" : "Blocked")</strong></p>
+                        <p>Hero duplicates: <strong>@(CurrentRoom.Config.AllowDuplicateHeroes ? "Allowed" : "Blocked")</strong></p>
+                        <p>Pick order: <strong>@PickOrderLabel(CurrentRoom.Config.PickOrder)</strong></p>
+                        <p>Timers: <strong>@CurrentRoom.Config.PreparationSeconds/@CurrentRoom.Config.PickSeconds sec</strong></p>
+                        <p>Slots: <strong>@(CurrentRoom.Config.FlexibleUltimateSlots ? "Flexible" : "Standard")</strong></p>
+                        <p>Blind draft: <strong>@(CurrentRoom.Config.BlindDraft ? "Enabled" : "Off")</strong></p>
+                    }
+                    <p>Chat: <strong>@(CurrentRoom.Config.DisableChat ? "Disabled" : "Enabled")</strong></p>
                     <p>Empty slots: <strong>@(CurrentRoom.Config.AllowEmptySlotsAsBots ? "Bots enabled" : "Removed at start")</strong></p>
                     <p>Icons: <strong>@IconCount</strong> mapped</p>
                     <p>Your session: <strong>@CurrentClientLabel</strong></p>
@@ -113,19 +124,20 @@ else
                                     <option value="@DraftMode.FreePick">FreePick</option>
                                     <option value="@DraftMode.Classic">Classic</option>
                                     <option value="@DraftMode.RandomHero">RandomHero</option>
+                                    <option value="@DraftMode.Custom">Custom</option>
                                 </select>
                             </label>
+                            @if (LobbyDraftMode == DraftMode.Custom)
+                            {
+                                @LobbyCustomSettingsPanel()
+                            }
                             <label class="toggle">
-                                <input type="checkbox" @bind="LobbyAllowDuplicates" />
-                                <span>Allow duplicate ability picks</span>
+                                <input type="checkbox" @bind="LobbyDisableChat" />
+                                <span>Disable chat</span>
                             </label>
                             <label class="toggle">
                                 <input type="checkbox" @bind="LobbyAllowBots" />
                                 <span>Allow empty slots as bots</span>
-                            </label>
-                            <label class="toggle">
-                                <input type="checkbox" @bind="LobbyAllowOverride" />
-                                <span>Host override picks/reorder</span>
                             </label>
                             <button @onclick="SaveLobbySettings">Save settings</button>
                         </div>
@@ -222,6 +234,11 @@ else
                             @HeroDraftBlock(block)
                         }
                     </section>
+
+                    @if (!CurrentRoom.Config.DisableChat)
+                    {
+                        @ChatPanel()
+                    }
                 </section>
 
                 <aside class="team-column team-archmother">
@@ -232,6 +249,11 @@ else
                     }
                 </aside>
             </section>
+
+            @if (ActiveContextMenu is not null)
+            {
+                @ContextMenuPanel()
+            }
 
             @if (CurrentRoom.Status == DraftRoomStatus.Completed)
             {
@@ -248,7 +270,14 @@ else
                                 {
                                     <small>Ability @(i + 1): @AbilityName(player.Loadout.RegularAbilities[i])</small>
                                 }
-                                <small>Ultimate: @AbilityName(player.Loadout.Ultimate)</small>
+                                @if (CurrentRoom.Config.FlexibleUltimateSlots)
+                                {
+                                    <small>Flexible slots enabled</small>
+                                }
+                                else
+                                {
+                                    <small>Ultimate: @AbilityName(player.Loadout.Ultimate)</small>
+                                }
                             </article>
                         }
                     </div>
@@ -393,14 +422,37 @@ else
     private bool LobbyAllowDuplicates;
     private bool LobbyAllowBots;
     private bool LobbyAllowOverride;
+    private bool LobbyDisableChat;
+    private int LobbyHeroPoolSize = 12;
+    private int LobbyMaxPlayers = 12;
+    private bool LobbyAllowDuplicateHeroes;
+    private bool LobbyFlexibleUltimates;
+    private bool LobbyBlindDraft;
+    private int LobbyPreparationSeconds;
+    private int LobbyPickSeconds;
+    private DraftPickOrder LobbyPickOrder = DraftPickOrder.AlternatingTeamsSnake;
+    private DraftAutoPickBehavior LobbyAutoPickBehavior = DraftAutoPickBehavior.RandomValidPick;
+    private DraftTeamBalance LobbyTeamBalance = DraftTeamBalance.AllowUnevenTeams;
+    private string LobbyCustomBanSearch = string.Empty;
+    private readonly HashSet<string> LobbyCustomBannedHeroes = new(StringComparer.Ordinal);
+    private readonly HashSet<string> LobbyCustomUnbannedHeroes = new(StringComparer.Ordinal);
+    private readonly HashSet<string> LobbyCustomBannedAbilities = new(StringComparer.Ordinal);
+    private readonly HashSet<string> LobbyCustomUnbannedAbilities = new(StringComparer.Ordinal);
     private bool ShowStartConfirmation;
     private bool SuppressDisconnectOnDispose;
-    private bool PresenceRegistered;
     private int LastHandledSoundEventId;
     private int MessageVersion;
     private int CopyMessageVersion;
     private readonly DateTime SoundListenStartedUtc = DateTime.UtcNow;
     private static readonly TimeSpan TransientMessageDuration = TimeSpan.FromSeconds(15);
+    private string ChatText = string.Empty;
+    private DraftChatScope ChatScope = DraftChatScope.Allies;
+    private readonly HashSet<string> MutedPlayerIds = new(StringComparer.Ordinal);
+    private RoomContextMenu? ActiveContextMenu;
+    private ElementReference ChatLogElement;
+    private int LastVisibleChatMessageId;
+    private bool PresenceRegistered;
+    private bool LocalDisconnectReported;
 
     private DraftPlayerSlot? CurrentTurnPlayer => CurrentRoom?.CurrentTurn is null ? null : CurrentRoom.Players.FirstOrDefault(player => player.SlotNumber == CurrentRoom.CurrentTurn.SlotNumber);
     private DraftClientSession? CurrentClient => CurrentRoom?.Clients.FirstOrDefault(player => player.PlayerId == PlayerId);
@@ -410,9 +462,14 @@ else
                                        !CurrentTurnPlayer.IsDisconnected &&
                                        !string.IsNullOrWhiteSpace(PlayerId) &&
                                        string.Equals(CurrentTurnPlayer.PlayerId, PlayerId, StringComparison.Ordinal);
+    private bool BlindDraftActive => CurrentRoom?.Config.DraftMode == DraftMode.Custom &&
+                                     CurrentRoom.Config.BlindDraft &&
+                                     CurrentRoom.Status != DraftRoomStatus.Completed;
     private string CurrentClientLabel => CurrentClient is null ? "Unknown" : $"{CurrentClient.DisplayName}, {TeamName(CurrentClient.Team)}";
     private string MaskedRoomCode => CurrentRoom is null ? "******" : new string('*', Math.Max(6, CurrentRoom.Code.Length));
     private int IconCount => CurrentRoom is null ? 0 : CurrentRoom.DeadlockData.Heroes.Count(hero => !string.IsNullOrWhiteSpace(hero.IconDataUrl)) + CurrentRoom.DeadlockData.Abilities.Count(ability => !string.IsNullOrWhiteSpace(ability.IconDataUrl));
+    private int MaxLobbyHeroPool => Math.Max(1, CurrentRoom?.DeadlockData.Heroes.Count ?? 12);
+    private int MaxLobbyPlayers => Math.Max(1, LobbyHeroPoolSize);
     private string DownloadHref => CurrentRoom?.GeneratedZip is null ? "#" : $"data:application/zip;base64,{Convert.ToBase64String(CurrentRoom.GeneratedZip)}";
     private string DownloadVpkHref => CurrentRoom?.GeneratedVpk is null ? "#" : $"data:application/octet-stream;base64,{Convert.ToBase64String(CurrentRoom.GeneratedVpk)}";
     private const string SearchPathsBlock = """
@@ -446,6 +503,7 @@ else
     protected override void OnInitialized()
     {
         RoomService.RoomChanged += OnRoomChanged;
+        Nav.LocationChanged += OnLocationChanged;
     }
 
     protected override void OnParametersSet()
@@ -489,6 +547,8 @@ else
             return;
         }
 
+        await ScrollChatIfNeeded();
+
         List<DraftSoundEvent> events;
         lock (CurrentRoom)
         {
@@ -526,6 +586,29 @@ else
                (!string.IsNullOrWhiteSpace(PlayerId) && string.Equals(sound.TargetPlayerId, PlayerId, StringComparison.Ordinal));
     }
 
+    private async Task ScrollChatIfNeeded()
+    {
+        if (CurrentRoom is null || CurrentRoom.Config.DisableChat)
+        {
+            return;
+        }
+
+        var latestId = VisibleChatMessages().Select(message => message.Id).DefaultIfEmpty(0).Max();
+        if (latestId <= LastVisibleChatMessageId)
+        {
+            return;
+        }
+
+        LastVisibleChatMessageId = latestId;
+        try
+        {
+            await JS.InvokeVoidAsync("deadlockAbilityDraft.scrollToBottom", ChatLogElement);
+        }
+        catch
+        {
+        }
+    }
+
     private void SyncLobbyFields()
     {
         if (CurrentRoom is null)
@@ -542,6 +625,25 @@ else
         LobbyAllowDuplicates = CurrentRoom.Config.AllowDuplicateAbilities;
         LobbyAllowBots = CurrentRoom.Config.AllowEmptySlotsAsBots;
         LobbyAllowOverride = CurrentRoom.Config.AllowHostOverridePicks;
+        LobbyDisableChat = CurrentRoom.Config.DisableChat;
+        LobbyHeroPoolSize = CurrentRoom.Config.HeroPoolSize;
+        LobbyMaxPlayers = CurrentRoom.Config.MaxPlayers;
+        LobbyAllowDuplicateHeroes = CurrentRoom.Config.AllowDuplicateHeroes;
+        LobbyFlexibleUltimates = CurrentRoom.Config.FlexibleUltimateSlots;
+        LobbyBlindDraft = CurrentRoom.Config.BlindDraft;
+        LobbyPreparationSeconds = CurrentRoom.Config.PreparationSeconds;
+        LobbyPickSeconds = CurrentRoom.Config.PickSeconds;
+        LobbyPickOrder = CurrentRoom.Config.PickOrder;
+        LobbyAutoPickBehavior = CurrentRoom.Config.AutoPickBehavior;
+        LobbyTeamBalance = CurrentRoom.Config.TeamBalance;
+        LobbyCustomBannedHeroes.Clear();
+        LobbyCustomUnbannedHeroes.Clear();
+        LobbyCustomBannedAbilities.Clear();
+        LobbyCustomUnbannedAbilities.Clear();
+        LobbyCustomBannedHeroes.UnionWith(CurrentRoom.Config.CustomBans.BannedHeroes);
+        LobbyCustomUnbannedHeroes.UnionWith(CurrentRoom.Config.CustomBans.UnbannedHeroes);
+        LobbyCustomBannedAbilities.UnionWith(CurrentRoom.Config.CustomBans.BannedAbilities);
+        LobbyCustomUnbannedAbilities.UnionWith(CurrentRoom.Config.CustomBans.UnbannedAbilities);
     }
 
     private IEnumerable<DraftPlayerSlot> TeamPlayers(DeadlockTeam team) =>
@@ -602,10 +704,139 @@ else
         builder.CloseElement();
     };
 
+    private RenderFragment LobbyCustomSettingsPanel() => @<section class="custom-settings-panel compact-custom-settings">
+        <div class="custom-settings-grid">
+            <label><span>Hero pool size</span><input type="number" min="1" max="@MaxLobbyHeroPool" @bind="LobbyHeroPoolSize" @bind:after="ClampLobbyPlayerLimits" /></label>
+            <label><span>Max players in lobby</span><input type="number" min="1" max="@MaxLobbyPlayers" @bind="LobbyMaxPlayers" @bind:after="ClampLobbyPlayerLimits" /></label>
+            <label>
+                <span>Pick order</span>
+                <select @bind="LobbyPickOrder">
+                    <option value="@DraftPickOrder.AlternatingTeamsSnake">Alternating teams snake order</option>
+                    <option value="@DraftPickOrder.AlternatingTeamsForward">Alternating teams forward order</option>
+                    <option value="@DraftPickOrder.RandomPlayerEachRound">Random player order each round</option>
+                </select>
+            </label>
+            <label>
+                <span>Auto-pick behavior</span>
+                <select @bind="LobbyAutoPickBehavior">
+                    <option value="@DraftAutoPickBehavior.RandomValidPick">Random valid pick</option>
+                    <option value="@DraftAutoPickBehavior.SkipPick">Skip pick</option>
+                    <option value="@DraftAutoPickBehavior.SameSourceHeroIfPossible">Pick from same source hero if possible</option>
+                </select>
+            </label>
+            <label>
+                <span>Team balance</span>
+                <select @bind="LobbyTeamBalance">
+                    <option value="@DraftTeamBalance.AllowUnevenTeams">Allow uneven teams</option>
+                    <option value="@DraftTeamBalance.RequireEqualTeams">Require equal teams</option>
+                    <option value="@DraftTeamBalance.AutoBalanceOnStart">Auto-balance teams on draft start</option>
+                </select>
+            </label>
+            <label><span>Preparation time</span><input type="number" min="1" @bind="LobbyPreparationSeconds" /></label>
+            <label><span>Pick timer</span><input type="number" min="1" @bind="LobbyPickSeconds" /></label>
+        </div>
+        <div class="custom-toggle-grid">
+            <label class="toggle"><input type="checkbox" @bind="LobbyAllowDuplicateHeroes" /><span>Allow duplicate heroes</span></label>
+            <label class="toggle"><input type="checkbox" @bind="LobbyAllowDuplicates" /><span>Allow duplicate abilities</span></label>
+            <label class="toggle"><input type="checkbox" @bind="LobbyFlexibleUltimates" /><span>Flexible ultimate slots</span></label>
+            <label class="toggle"><input type="checkbox" @bind="LobbyBlindDraft" /><span>Blind draft</span></label>
+            <label class="toggle"><input type="checkbox" @bind="LobbyAllowOverride" /><span>Host override picks/reorder</span></label>
+        </div>
+        <details class="custom-ban-panel">
+            <summary>Custom bans</summary>
+            <input class="custom-search" placeholder="Search heroes or abilities" @bind="LobbyCustomBanSearch" @bind:event="oninput" />
+            <div class="custom-ban-columns">
+                <div>
+                    <h4>Heroes</h4>
+                    @foreach (var hero in FilteredLobbyHeroes())
+                    {
+                        var defaultBanned = CurrentRoom?.Bans.BannedHeroes.Contains(hero.Key) == true;
+                        <label class="custom-ban-row">
+                            @HeroIcon(hero)
+                            <span>
+                                <strong>@hero.DisplayName</strong>
+                                <small>@hero.Key</small>
+                                @if (defaultBanned)
+                                {
+                                    <em>Banned by default</em>
+                                }
+                            </span>
+                            <label><input type="checkbox" checked="@LobbyCustomBannedHeroes.Contains(hero.Key)" @onchange="args => ToggleSet(LobbyCustomBannedHeroes, hero.Key, args)" /> Ban</label>
+                            <label><input type="checkbox" checked="@LobbyCustomUnbannedHeroes.Contains(hero.Key)" @onchange="args => ToggleSet(LobbyCustomUnbannedHeroes, hero.Key, args)" /> Unban</label>
+                        </label>
+                    }
+                </div>
+                <div>
+                    <h4>Abilities</h4>
+                    @foreach (var ability in FilteredLobbyAbilities())
+                    {
+                        var autoBanned = CurrentRoom is not null && DraftPoolGenerator.IsAbilityAutoBanned(ability, CurrentRoom.DeadlockData);
+                        var defaultBanned = CurrentRoom is not null && DraftPoolGenerator.IsAbilityBanned(ability, CurrentRoom.Bans, CurrentRoom.DeadlockData);
+                        <div class="custom-ban-row ability-ban-row">
+                            @SmallAbilityIcon(ability)
+                            <span>
+                                <strong>@ability.DisplayName</strong>
+                                <small>@ability.Key - @ability.SourceHeroName</small>
+                                @if (autoBanned)
+                                {
+                                    <em>Unknown source</em>
+                                }
+                                else if (defaultBanned)
+                                {
+                                    <em>Banned by default</em>
+                                }
+                            </span>
+                            <label><input type="checkbox" checked="@LobbyCustomBannedAbilities.Contains(ability.Key)" @onchange="args => ToggleSet(LobbyCustomBannedAbilities, ability.Key, args)" /> Ban</label>
+                            <label><input type="checkbox" disabled="@autoBanned" checked="@LobbyCustomUnbannedAbilities.Contains(ability.Key)" @onchange="args => ToggleSet(LobbyCustomUnbannedAbilities, ability.Key, args)" /> Unban</label>
+                        </div>
+                    }
+                </div>
+            </div>
+        </details>
+    </section>;
+
+    private IEnumerable<HeroDefinition> FilteredLobbyHeroes()
+    {
+        var heroes = CurrentRoom?.DeadlockData.Heroes ?? [];
+        return heroes
+            .Where(hero => MatchesLobbyCustomSearch(hero.DisplayName, hero.Key))
+            .OrderBy(hero => hero.DisplayName);
+    }
+
+    private IEnumerable<AbilityDefinition> FilteredLobbyAbilities()
+    {
+        var abilities = CurrentRoom?.DeadlockData.Abilities ?? [];
+        return abilities
+            .Where(ability => ability.PickKind is DraftPickKind.RegularAbility or DraftPickKind.UltimateAbility)
+            .Where(ability => CurrentRoom is null || !DraftPoolGenerator.IsAbilityAutoBanned(ability, CurrentRoom.DeadlockData))
+            .Where(ability => MatchesLobbyCustomSearch(ability.DisplayName, ability.Key, ability.SourceHeroName))
+            .OrderBy(ability => ability.DisplayName);
+    }
+
+    private bool MatchesLobbyCustomSearch(params string[] values)
+    {
+        if (string.IsNullOrWhiteSpace(LobbyCustomBanSearch))
+        {
+            return true;
+        }
+
+        return values.Any(value => value.Contains(LobbyCustomBanSearch, StringComparison.OrdinalIgnoreCase));
+    }
+
     private IEnumerable<HeroDraftGroup> DraftHeroBlocks()
     {
         if (CurrentRoom is null)
         {
+            yield break;
+        }
+
+        if (BlindDraftActive)
+        {
+            foreach (var block in BlindHeroDraftBlocks())
+            {
+                yield return block;
+            }
+
             yield break;
         }
 
@@ -643,6 +874,50 @@ else
         }
     }
 
+    private IEnumerable<HeroDraftGroup> BlindHeroDraftBlocks()
+    {
+        if (CurrentRoom is null)
+        {
+            yield break;
+        }
+
+        var heroes = CurrentRoom.DraftHeroPoolKeys
+            .Select(key => CurrentRoom.DeadlockData.Heroes.FirstOrDefault(hero => hero.Key == key))
+            .Where(hero => hero is not null)
+            .Select(hero => hero!)
+            .ToList();
+        if (heroes.Count == 0)
+        {
+            yield break;
+        }
+
+        var groups = heroes
+            .Select(hero => new List<DraftAbilityEntry>())
+            .ToList();
+        var mixedAbilities = CurrentRoom.DraftAbilityPool
+            .OrderBy(item => StableBlindOrder(CurrentRoom.Code, item.AbilityKey))
+            .Select(item =>
+            {
+                var ability = CurrentRoom.DeadlockData.Abilities.FirstOrDefault(ability => ability.Key == item.AbilityKey);
+                return ability?.PickKind == DraftPickKind.RegularAbility
+                    ? new DraftAbilityEntry(ability, item)
+                    : null;
+            })
+            .Where(entry => entry is not null)
+            .Select(entry => entry!)
+            .ToList();
+
+        for (var i = 0; i < mixedAbilities.Count; i++)
+        {
+            groups[i % groups.Count].Add(mixedAbilities[i]);
+        }
+
+        for (var i = 0; i < heroes.Count; i++)
+        {
+            yield return new HeroDraftGroup(heroes[i], groups[i]);
+        }
+    }
+
     private IEnumerable<DraftAbilityEntry> UltimateEntries()
     {
         if (CurrentRoom is null)
@@ -675,6 +950,8 @@ else
         builder.AddAttribute(sequence++, "disabled", !canPickHero);
         builder.AddAttribute(sequence++, "title", block.Hero.Key);
         builder.AddAttribute(sequence++, "onclick", EventCallback.Factory.Create(this, () => Pick(block.Hero.Key)));
+        builder.AddAttribute(sequence++, "oncontextmenu", EventCallback.Factory.Create<MouseEventArgs>(this, args => OpenDraftItemMenu(args, block.Hero.Key, block.Hero.DisplayName, false)));
+        builder.AddEventPreventDefaultAttribute(sequence++, "oncontextmenu", true);
         HeroIcon(block.Hero)(builder);
         builder.OpenElement(sequence++, "span");
         builder.AddContent(sequence++, block.Hero.DisplayName);
@@ -685,7 +962,7 @@ else
         builder.AddAttribute(sequence++, "class", "block-ability-grid");
         foreach (var entry in block.Abilities)
         {
-            AbilityTile(entry.Ability, entry.PoolItem)(builder);
+            AbilityTile(entry.Ability, entry.PoolItem, hideIdentity: ShouldHideAbilityIdentity(entry.Ability))(builder);
         }
         builder.CloseElement();
 
@@ -739,6 +1016,8 @@ else
         {
             builder.AddAttribute(sequence++, "class", "own-turn-name");
         }
+        builder.AddAttribute(sequence++, "oncontextmenu", EventCallback.Factory.Create<MouseEventArgs>(this, args => OpenPlayerMenu(args, player.PlayerId, player.NameOrFallback)));
+        builder.AddEventPreventDefaultAttribute(sequence++, "oncontextmenu", true);
         builder.AddContent(sequence++, player.NameOrFallback);
         builder.CloseElement();
         builder.OpenElement(sequence++, "small");
@@ -755,6 +1034,7 @@ else
         {
             var abilityKey = abilitySlot.Key;
             var ability = CurrentRoom?.DeadlockData.Abilities.FirstOrDefault(item => item.Key == abilityKey);
+            var hideAbility = ability is not null && ShouldHideAbilityIdentity(ability);
             var hasAbility = !string.IsNullOrWhiteSpace(abilityKey);
             var isNormalSlot = !abilitySlot.IsUltimate;
             var canDrop = canReorder && isNormalSlot;
@@ -782,7 +1062,14 @@ else
             builder.AddAttribute(sequence++, "class", "slot-label");
             builder.AddContent(sequence++, abilitySlot.Label);
             builder.CloseElement();
-            if (!string.IsNullOrWhiteSpace(ability?.IconDataUrl))
+            if (hideAbility)
+            {
+                builder.OpenElement(sequence++, "img");
+                builder.AddAttribute(sequence++, "src", "/icons/hidden-icon.png");
+                builder.AddAttribute(sequence++, "alt", "Hidden ability");
+                builder.CloseElement();
+            }
+            else if (!string.IsNullOrWhiteSpace(ability?.IconDataUrl))
             {
                 builder.OpenElement(sequence++, "img");
                 builder.AddAttribute(sequence++, "src", ability.IconDataUrl);
@@ -815,46 +1102,227 @@ else
         }
     };
 
-    private RenderFragment AbilityTile(AbilityDefinition ability, DraftAbilityPoolItem? poolItem) => builder =>
+    private RenderFragment SmallAbilityIcon(AbilityDefinition ability) => builder =>
+    {
+        if (!string.IsNullOrWhiteSpace(ability.IconDataUrl))
+        {
+            builder.OpenElement(0, "img");
+            builder.AddAttribute(1, "src", ability.IconDataUrl);
+            builder.AddAttribute(2, "alt", ability.DisplayName);
+            builder.CloseElement();
+        }
+    };
+
+    private RenderFragment AbilityTile(AbilityDefinition ability, DraftAbilityPoolItem? poolItem, bool hideIdentity = false) => builder =>
     {
         var picked = CurrentRoom?.PickedAbilityKeys.Contains(ability.Key) == true;
         var canPick = CurrentRoom is not null && RoomService.CanPlayerPickKey(CurrentRoom, PlayerId, ability.Key);
+        var displayName = hideIdentity ? "Hidden ability" : ability.DisplayName;
+        var icon = hideIdentity ? "/icons/hidden-icon.png" : ability.IconDataUrl;
+        var title = hideIdentity
+            ? "Hidden ability"
+            : poolItem?.IsReplacement == true
+                ? $"{ability.DisplayName} | {ability.Key} | Replacement: {poolItem.ReplacementReason} | Source: {ability.SourceHeroName}"
+                : $"{ability.DisplayName} | {ability.Key} | {ability.SourceHeroName} {ability.SourceSlot}";
         var sequence = 0;
         builder.OpenElement(sequence++, "button");
-        builder.AddAttribute(sequence++, "class", $"ability-tile grouped{(picked ? " picked" : string.Empty)}{(poolItem?.IsReplacement == true ? " replacement" : string.Empty)}{(ability.PickKind == DraftPickKind.UltimateAbility ? " ultimate" : string.Empty)}");
+        builder.AddAttribute(sequence++, "class", $"ability-tile grouped{(picked ? " picked" : string.Empty)}{(poolItem?.IsReplacement == true ? " replacement" : string.Empty)}{(ability.PickKind == DraftPickKind.UltimateAbility ? " ultimate" : string.Empty)}{(hideIdentity ? " blind-hidden" : string.Empty)}");
         builder.AddAttribute(sequence++, "disabled", !canPick);
-        builder.AddAttribute(sequence++, "title", poolItem?.IsReplacement == true
-            ? $"{ability.DisplayName} | {ability.Key} | Replacement: {poolItem.ReplacementReason} | Source: {ability.SourceHeroName}"
-            : $"{ability.DisplayName} | {ability.Key} | {ability.SourceHeroName} {ability.SourceSlot}");
+        builder.AddAttribute(sequence++, "title", title);
         builder.AddAttribute(sequence++, "onclick", EventCallback.Factory.Create(this, () => Pick(ability.Key)));
-        if (!string.IsNullOrWhiteSpace(ability.IconDataUrl))
+        builder.AddAttribute(sequence++, "oncontextmenu", EventCallback.Factory.Create<MouseEventArgs>(this, args => OpenDraftItemMenu(args, ability.Key, displayName, hideIdentity)));
+        builder.AddEventPreventDefaultAttribute(sequence++, "oncontextmenu", true);
+        if (!string.IsNullOrWhiteSpace(icon))
         {
             builder.OpenElement(sequence++, "img");
-            builder.AddAttribute(sequence++, "src", ability.IconDataUrl);
-            builder.AddAttribute(sequence++, "alt", ability.DisplayName);
+            builder.AddAttribute(sequence++, "src", icon);
+            builder.AddAttribute(sequence++, "alt", displayName);
             builder.CloseElement();
         }
         else
         {
             builder.OpenElement(sequence++, "span");
             builder.AddAttribute(sequence++, "class", "icon-placeholder");
-            builder.AddContent(sequence++, Initials(ability.DisplayName));
+            builder.AddContent(sequence++, Initials(displayName));
             builder.CloseElement();
         }
         builder.OpenElement(sequence++, "small");
-        builder.AddContent(sequence++, ability.DisplayName);
+        builder.AddContent(sequence++, displayName);
         builder.CloseElement();
         builder.CloseElement();
     };
 
+    private RenderFragment ChatPanel() => @<section class="draft-chat-panel">
+        <div class="chat-log" @ref="ChatLogElement">
+            @foreach (var message in VisibleChatMessages())
+            {
+                <p class="chat-message @(message.IsQuick ? "quick-chat" : string.Empty)">
+                    <span class="chat-scope">[@ChatScopeLabel(message.Scope)]</span>
+                    <button class="chat-name @TeamTextClass(message.SenderTeam)"
+                            title="Right click to mute"
+                            @oncontextmenu="args => OpenPlayerMenu(args, message.SenderPlayerId, message.SenderName)"
+                            @oncontextmenu:preventDefault="true">
+                        @message.SenderName
+                    </button>
+                    <span class="chat-text">: @message.Text</span>
+                </p>
+            }
+        </div>
+        @if (CurrentClient is not null)
+        {
+            <div class="chat-input-row">
+                <button class="chat-scope-toggle" title="Toggle chat scope" @onclick="ToggleChatScope">@ChatScopeLabel(ChatScope)</button>
+                <input maxlength="300"
+                       placeholder="Message"
+                       @bind="ChatText"
+                       @bind:event="oninput"
+                       @onkeydown="HandleChatKey" />
+                <button @onclick="SendChat">Send</button>
+            </div>
+        }
+    </section>;
+
+    private RenderFragment ContextMenuPanel() => @<div>
+        <button class="context-menu-backdrop" @onclick="CloseContextMenu" aria-label="Close menu"></button>
+        <div class="context-menu" style="@($"left:{ActiveContextMenu!.X}px; top:{ActiveContextMenu.Y}px")">
+            @if (ActiveContextMenu.Kind == RoomContextMenuKind.Player)
+            {
+                <button @onclick="ToggleMutedPlayer">@(IsMuted(ActiveContextMenu.PlayerId) ? "Unmute" : "Mute")</button>
+            }
+            else if (!CurrentRoom!.Config.DisableChat)
+            {
+                <button @onclick="() => SendQuickChat(DraftQuickChatAction.WantThis)">Want this</button>
+                <button @onclick="() => SendQuickChat(DraftQuickChatAction.Recommend)">Recommend</button>
+            }
+        </div>
+    </div>;
+
+    private IEnumerable<DraftChatMessage> VisibleChatMessages()
+    {
+        if (CurrentRoom is null || CurrentRoom.Config.DisableChat)
+        {
+            return [];
+        }
+
+        return CurrentRoom.ChatMessages
+            .Where(message => !IsMuted(message.SenderPlayerId))
+            .Where(message => message.Scope == DraftChatScope.All ||
+                              (CurrentClient is not null && message.SenderTeam == CurrentClient.Team))
+            .TakeLast(80);
+    }
+
+    private static string ChatScopeLabel(DraftChatScope scope) =>
+        scope == DraftChatScope.All ? "all" : "allies";
+
+    private void ToggleChatScope() =>
+        ChatScope = ChatScope == DraftChatScope.Allies ? DraftChatScope.All : DraftChatScope.Allies;
+
+    private void SendChat()
+    {
+        var text = ChatText;
+        try
+        {
+            ClearMessage();
+            RoomService.SendChatMessage(Code, PlayerId ?? string.Empty, ChatScope, text);
+            ChatText = string.Empty;
+        }
+        catch (Exception ex)
+        {
+            SetMessage(ex.Message);
+        }
+    }
+
+    private void HandleChatKey(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter")
+        {
+            SendChat();
+        }
+    }
+
+    private void SendQuickChat(DraftQuickChatAction action)
+    {
+        var menu = ActiveContextMenu;
+        CloseContextMenu();
+        if (menu?.Kind != RoomContextMenuKind.DraftItem || string.IsNullOrWhiteSpace(menu.ItemKey))
+        {
+            return;
+        }
+
+        Try(() => RoomService.SendQuickChat(Code, PlayerId ?? string.Empty, menu.ItemKey, action));
+    }
+
+    private void OpenDraftItemMenu(MouseEventArgs args, string itemKey, string displayName, bool isHidden)
+    {
+        if (CurrentRoom?.Config.DisableChat == true || CurrentClient is null)
+        {
+            return;
+        }
+
+        ActiveContextMenu = RoomContextMenu.ForDraftItem(args.ClientX, args.ClientY, itemKey, displayName, isHidden);
+    }
+
+    private void OpenPlayerMenu(MouseEventArgs args, string? targetPlayerId, string displayName)
+    {
+        if (string.IsNullOrWhiteSpace(targetPlayerId) || string.Equals(targetPlayerId, PlayerId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        ActiveContextMenu = RoomContextMenu.ForPlayer(args.ClientX, args.ClientY, targetPlayerId, displayName);
+    }
+
+    private void ToggleMutedPlayer()
+    {
+        var playerId = ActiveContextMenu?.PlayerId;
+        if (string.IsNullOrWhiteSpace(playerId))
+        {
+            CloseContextMenu();
+            return;
+        }
+
+        if (!MutedPlayerIds.Add(playerId))
+        {
+            MutedPlayerIds.Remove(playerId);
+        }
+
+        CloseContextMenu();
+    }
+
+    private bool IsMuted(string? playerId) =>
+        !string.IsNullOrWhiteSpace(playerId) && MutedPlayerIds.Contains(playerId);
+
+    private void CloseContextMenu() => ActiveContextMenu = null;
+
+    private void DisconnectAndGoHome()
+    {
+        DisconnectLocalSession();
+        SuppressDisconnectOnDispose = true;
+        Nav.NavigateTo("/");
+    }
+
     private IEnumerable<(int Index, string Label, string? Key, bool IsUltimate)> AbilitySlots(DraftPlayerSlot player)
     {
-        for (var i = 0; i < 3; i++)
+        if (CurrentRoom?.Config.FlexibleUltimateSlots == true)
+        {
+            for (var i = 0; i < CurrentRoom.Config.RequiredAbilitySlots; i++)
+            {
+                yield return (i, (i + 1).ToString(), player.Loadout.RegularAbilities.ElementAtOrDefault(i), false);
+            }
+
+            yield break;
+        }
+
+        var regularSlots = CurrentRoom?.Config.RegularAbilityPicksPerPlayer ?? 3;
+        for (var i = 0; i < regularSlots; i++)
         {
             yield return (i, (i + 1).ToString(), player.Loadout.RegularAbilities.ElementAtOrDefault(i), false);
         }
 
-        yield return (3, "U", player.Loadout.Ultimate, true);
+        if ((CurrentRoom?.Config.UltimatePicksPerPlayer ?? 1) > 0)
+        {
+            yield return (regularSlots, "U", player.Loadout.Ultimate, true);
+        }
     }
 
     private static string MiniSlotClass(bool hasAbility, bool isUltimate, bool canDrag, bool canDrop, bool isDragging)
@@ -887,6 +1355,24 @@ else
         }
 
         return string.Join(' ', classes);
+    }
+
+    private bool ShouldHideAbilityIdentity(AbilityDefinition ability) =>
+        BlindDraftActive && ability.PickKind == DraftPickKind.RegularAbility;
+
+    private static uint StableBlindOrder(string roomCode, string abilityKey)
+    {
+        unchecked
+        {
+            var hash = 2166136261u;
+            foreach (var character in $"{roomCode}:{abilityKey}")
+            {
+                hash ^= character;
+                hash *= 16777619u;
+            }
+
+            return hash;
+        }
     }
 
     private void StartDraft()
@@ -1032,13 +1518,38 @@ else
         }
     }
 
-    private void SaveLobbySettings() => Try(() => RoomService.UpdateRoomConfig(Code, PlayerId ?? string.Empty, new DraftRoomConfig
+    private void SaveLobbySettings() => Try(() => RoomService.UpdateRoomConfig(Code, PlayerId ?? string.Empty, BuildLobbyConfig()));
+
+    private DraftRoomConfig BuildLobbyConfig()
     {
-        DraftMode = LobbyDraftMode,
-        AllowDuplicateAbilities = LobbyAllowDuplicates,
-        AllowEmptySlotsAsBots = LobbyAllowBots,
-        AllowHostOverridePicks = LobbyAllowOverride
-    }));
+        var config = new DraftRoomConfig
+        {
+            DraftMode = LobbyDraftMode,
+            AllowDuplicateAbilities = LobbyDraftMode == DraftMode.Custom && LobbyAllowDuplicates,
+            AllowEmptySlotsAsBots = LobbyAllowBots,
+            AllowHostOverridePicks = LobbyDraftMode == DraftMode.Custom && LobbyAllowOverride,
+            DisableChat = LobbyDisableChat,
+            MaxPlayers = Math.Clamp(LobbyMaxPlayers, 1, MaxLobbyPlayers),
+            HeroPoolSize = LobbyHeroPoolSize,
+            AllowDuplicateHeroes = LobbyDraftMode == DraftMode.Custom && LobbyAllowDuplicateHeroes,
+            FlexibleUltimateSlots = LobbyDraftMode == DraftMode.Custom && LobbyFlexibleUltimates,
+            BlindDraft = LobbyDraftMode == DraftMode.Custom && LobbyBlindDraft,
+            PreparationSeconds = LobbyPreparationSeconds,
+            PickSeconds = LobbyPickSeconds,
+            RequiredHeroCount = 1,
+            RequiredAbilitySlots = 4,
+            UltimatePicksPerPlayer = LobbyDraftMode == DraftMode.Custom && LobbyFlexibleUltimates ? 0 : 1,
+            PickOrder = LobbyPickOrder,
+            AutoPickBehavior = LobbyAutoPickBehavior,
+            TeamBalance = LobbyTeamBalance
+        };
+        config.CustomBans.BannedHeroes.UnionWith(LobbyCustomBannedHeroes);
+        config.CustomBans.UnbannedHeroes.UnionWith(LobbyCustomUnbannedHeroes);
+        config.CustomBans.BannedAbilities.UnionWith(LobbyCustomBannedAbilities);
+        config.CustomBans.UnbannedAbilities.UnionWith(LobbyCustomUnbannedAbilities);
+        return config;
+    }
+
     private void StartAbilityDrag(int slotNumber, int fromIndex)
     {
         DragSlotNumber = slotNumber;
@@ -1078,6 +1589,24 @@ else
 
         RoomService.SetReady(Code, PlayerId ?? string.Empty, !CurrentClient.IsReady);
     });
+
+    private static void ToggleSet(HashSet<string> set, string key, ChangeEventArgs args)
+    {
+        if (args.Value is bool enabled && enabled)
+        {
+            set.Add(key);
+        }
+        else
+        {
+            set.Remove(key);
+        }
+    }
+
+    private void ClampLobbyPlayerLimits()
+    {
+        LobbyHeroPoolSize = Math.Clamp(LobbyHeroPoolSize, 1, MaxLobbyHeroPool);
+        LobbyMaxPlayers = Math.Clamp(LobbyMaxPlayers, 1, MaxLobbyPlayers);
+    }
 
     private void Try(Action action)
     {
@@ -1198,6 +1727,18 @@ else
         DraftMode.FreePick => "FreePick",
         DraftMode.Classic => "Classic",
         DraftMode.RandomHero => "Random Hero",
+        DraftMode.Custom => "Custom",
+        _ => "Unknown"
+    };
+
+    private static string PickOrderLabel(DraftPickOrder order) => order switch
+    {
+        DraftPickOrder.AlternatingTeamsSnake => "Alternating snake",
+        DraftPickOrder.AlternatingTeamsForward => "Alternating forward",
+        DraftPickOrder.RandomPlayerEachRound => "Random each round",
+        DraftPickOrder.FixedLobbyOrder => "Fixed lobby order",
+        DraftPickOrder.HiddenKingFirst => "Hidden King first",
+        DraftPickOrder.ArchmotherFirst => "Archmother first",
         _ => "Unknown"
     };
 
@@ -1243,15 +1784,63 @@ else
         });
     }
 
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs args)
+    {
+        if (!IsCurrentRoomUri(args.Location))
+        {
+            DisconnectLocalSession();
+        }
+    }
+
+    private bool IsCurrentRoomUri(string uri)
+    {
+        var relative = Nav.ToBaseRelativePath(uri).Split('?', '#')[0].Trim('/');
+        return relative.Equals($"room/{Code}/lobby", StringComparison.OrdinalIgnoreCase) ||
+               relative.Equals($"room/{Code}/draft", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void DisconnectLocalSession()
+    {
+        if (!PresenceRegistered ||
+            LocalDisconnectReported ||
+            SuppressDisconnectOnDispose ||
+            string.IsNullOrWhiteSpace(PlayerId))
+        {
+            return;
+        }
+
+        LocalDisconnectReported = true;
+        RoomService.MarkPlayerDisconnected(Code, PlayerId);
+    }
+
     public void Dispose()
     {
         RoomService.RoomChanged -= OnRoomChanged;
-        if (PresenceRegistered && !SuppressDisconnectOnDispose)
-        {
-            RoomService.MarkPlayerDisconnected(Code, PlayerId);
-        }
+        Nav.LocationChanged -= OnLocationChanged;
+        DisconnectLocalSession();
     }
 
     private sealed record HeroDraftGroup(HeroDefinition Hero, IReadOnlyList<DraftAbilityEntry> Abilities);
     private sealed record DraftAbilityEntry(AbilityDefinition Ability, DraftAbilityPoolItem PoolItem);
+    private sealed record RoomContextMenu(
+        RoomContextMenuKind Kind,
+        double X,
+        double Y,
+        string? PlayerId,
+        string? ItemKey,
+        string DisplayName,
+        bool IsHidden)
+    {
+        public static RoomContextMenu ForPlayer(double x, double y, string playerId, string displayName) =>
+            new(RoomContextMenuKind.Player, x, y, playerId, null, displayName, false);
+
+        public static RoomContextMenu ForDraftItem(double x, double y, string itemKey, string displayName, bool isHidden) =>
+            new(RoomContextMenuKind.DraftItem, x, y, null, itemKey, displayName, isHidden);
+    }
+
+    private enum RoomContextMenuKind
+    {
+        Player,
+        DraftItem
+    }
 }

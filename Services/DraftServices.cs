@@ -13,25 +13,25 @@ namespace abilitydraft.Services;
 
 public sealed class DraftPoolGenerator
 {
-    public List<HeroDefinition> GenerateHeroPool(ParsedDeadlockData data, DeadlockBanList bans, int count)
+    public List<HeroDefinition> GenerateHeroPool(ParsedDeadlockData data, DeadlockBanList bans, DraftRoomConfig config, int count)
     {
         var candidates = data.Heroes
             .Where(hero => !hero.Disabled && !hero.HeroLabs)
-            .Where(hero => !bans.BannedHeroes.Contains(hero.Key))
+            .Where(hero => !IsHeroBanned(hero.Key, bans, config.CustomBans))
             .Where(hero => hero.DraftableAbilityKeys().All(ability => data.Abilities.Any(item => item.Key == ability)))
             .ToList();
 
         if (candidates.Count < count)
         {
             candidates = data.Heroes
-                .Where(hero => !bans.BannedHeroes.Contains(hero.Key))
+                .Where(hero => !IsHeroBanned(hero.Key, bans, config.CustomBans))
                 .ToList();
         }
 
         return candidates.OrderBy(_ => RandomNumberGenerator.GetInt32(int.MaxValue)).Take(count).ToList();
     }
 
-    public List<DraftAbilityPoolItem> GenerateAbilityPool(IReadOnlyCollection<HeroDefinition> heroes, ParsedDeadlockData data, DeadlockBanList bans, List<string> warnings)
+    public List<DraftAbilityPoolItem> GenerateAbilityPool(IReadOnlyCollection<HeroDefinition> heroes, ParsedDeadlockData data, DeadlockBanList bans, DraftRoomConfig config, List<string> warnings)
     {
         var draftHeroKeys = heroes.Select(hero => hero.Key).ToHashSet(StringComparer.Ordinal);
         var pool = new List<DraftAbilityPoolItem>();
@@ -48,14 +48,14 @@ public sealed class DraftPoolGenerator
                     continue;
                 }
 
-                if (!IsAbilityBanned(ability, bans, data))
+                if (!IsAbilityBanned(ability, bans, config.CustomBans, data))
                 {
                     AddPoolItem(ability.Key, ability.Key, hero.Key, false, string.Empty);
                     continue;
                 }
 
-                var replacement = FindReplacementAbility(data, bans, draftHeroKeys, used, ability.PickKind)
-                                  ?? FindReplacementAbility(data, bans, draftHeroKeys, used, null);
+                var replacement = FindReplacementAbility(data, bans, config, draftHeroKeys, used, ability.PickKind)
+                                  ?? FindReplacementAbility(data, bans, config, draftHeroKeys, used, null);
                 if (replacement is null)
                 {
                     warnings.Add($"Banned ability '{ability.Key}' from '{hero.Key}' could not be replaced.");
@@ -94,22 +94,49 @@ public sealed class DraftPoolGenerator
 
     public static bool IsAbilityBanned(AbilityDefinition ability, DeadlockBanList bans, ParsedDeadlockData? data = null)
     {
-        if (bans.UnbannedAbilities.Contains(ability.Key))
+        return IsAbilityBanned(ability, bans, null, data);
+    }
+
+    public static bool IsAbilityBanned(AbilityDefinition ability, DeadlockBanList globalBans, DeadlockBanList? customBans, ParsedDeadlockData? data = null)
+    {
+        var autoBanned = IsAbilityAutoBanned(ability, data);
+        if (customBans?.UnbannedAbilities.Contains(ability.Key) == true && !autoBanned)
         {
             return false;
         }
 
-        if (bans.BannedAbilities.Contains(ability.Key))
+        if (customBans?.BannedAbilities.Contains(ability.Key) == true)
         {
             return true;
         }
 
-        if (IsAbilityAutoBanned(ability, data))
+        if (globalBans.UnbannedAbilities.Contains(ability.Key) && !autoBanned)
+        {
+            return false;
+        }
+
+        if (globalBans.BannedAbilities.Contains(ability.Key))
         {
             return true;
         }
 
-        return bans.BannedHeroes.Contains(ability.SourceHeroKey);
+        if (autoBanned)
+        {
+            return true;
+        }
+
+        return IsHeroBanned(ability.SourceHeroKey, globalBans, customBans);
+    }
+
+    public static bool IsHeroBanned(string heroKey, DeadlockBanList globalBans, DeadlockBanList? customBans = null)
+    {
+        if (customBans?.UnbannedHeroes.Contains(heroKey) == true)
+        {
+            return false;
+        }
+
+        return customBans?.BannedHeroes.Contains(heroKey) == true ||
+               globalBans.BannedHeroes.Contains(heroKey);
     }
 
     public static bool IsAbilityAutoBanned(AbilityDefinition ability, ParsedDeadlockData? data = null)
@@ -127,6 +154,7 @@ public sealed class DraftPoolGenerator
     private static AbilityDefinition? FindReplacementAbility(
         ParsedDeadlockData data,
         DeadlockBanList bans,
+        DraftRoomConfig config,
         HashSet<string> draftHeroKeys,
         HashSet<string> used,
         DraftPickKind? preferredKind)
@@ -136,7 +164,7 @@ public sealed class DraftPoolGenerator
             .Where(ability => preferredKind is null || ability.PickKind == preferredKind)
             .Where(ability => !draftHeroKeys.Contains(ability.SourceHeroKey))
             .Where(ability => !used.Contains(ability.Key))
-            .Where(ability => !IsAbilityBanned(ability, bans, data))
+            .Where(ability => !IsAbilityBanned(ability, bans, config.CustomBans, data))
             .OrderBy(_ => RandomNumberGenerator.GetInt32(int.MaxValue))
             .FirstOrDefault();
     }
@@ -176,6 +204,13 @@ public sealed class DraftTurnService
                 for (var i = 0; i < abilityRounds; i++, abilityRound++)
                 {
                     turns.AddRange(SnakeTeamSlotNumbers(room, abilityRound).Select(slot => new DraftTurn(slot, DraftPickKind.AnyAbility, abilityRound)));
+                }
+                break;
+            case DraftMode.Custom:
+                var customRounds = Math.Max(0, room.Config.RequiredHeroCount) + Math.Max(0, room.Config.RequiredAbilitySlots);
+                for (var round = 1; round <= customRounds; round++)
+                {
+                    turns.AddRange(CustomRoundSlotNumbers(room, round).Select(slot => new DraftTurn(slot, DraftPickKind.Any, round)));
                 }
                 break;
         }
@@ -227,6 +262,73 @@ public sealed class DraftTurnService
 
         return ordered;
     }
+
+    private static List<int> CustomRoundSlotNumbers(DraftRoom room, int roundNumber)
+    {
+        return room.Config.PickOrder switch
+        {
+            DraftPickOrder.AlternatingTeamsForward => AlternatingTeamSlotNumbers(room, reverse: false),
+            DraftPickOrder.RandomPlayerEachRound => ActiveSlots(room)
+                .Select(slot => slot.SlotNumber)
+                .OrderBy(_ => RandomNumberGenerator.GetInt32(int.MaxValue))
+                .ToList(),
+            DraftPickOrder.FixedLobbyOrder => ActiveSlots(room)
+                .OrderBy(slot => slot.SlotNumber)
+                .Select(slot => slot.SlotNumber)
+                .ToList(),
+            DraftPickOrder.HiddenKingFirst => TeamFirstSlotNumbers(room, DeadlockTeam.HiddenKing),
+            DraftPickOrder.ArchmotherFirst => TeamFirstSlotNumbers(room, DeadlockTeam.Archmother),
+            _ => SnakeTeamSlotNumbers(room, roundNumber)
+        };
+    }
+
+    private static List<int> AlternatingTeamSlotNumbers(DraftRoom room, bool reverse)
+    {
+        var hiddenKing = TeamSlotNumbers(room, DeadlockTeam.HiddenKing);
+        var archmother = TeamSlotNumbers(room, DeadlockTeam.Archmother);
+        if (reverse)
+        {
+            hiddenKing.Reverse();
+            archmother.Reverse();
+        }
+
+        var ordered = new List<int>();
+        var max = Math.Max(hiddenKing.Count, archmother.Count);
+        for (var i = 0; i < max; i++)
+        {
+            if (!reverse && i < hiddenKing.Count)
+            {
+                ordered.Add(hiddenKing[i]);
+            }
+
+            if (i < archmother.Count)
+            {
+                ordered.Add(archmother[i]);
+            }
+
+            if (reverse && i < hiddenKing.Count)
+            {
+                ordered.Add(hiddenKing[i]);
+            }
+        }
+
+        return ordered;
+    }
+
+    private static List<int> TeamFirstSlotNumbers(DraftRoom room, DeadlockTeam firstTeam)
+    {
+        var secondTeam = firstTeam == DeadlockTeam.HiddenKing ? DeadlockTeam.Archmother : DeadlockTeam.HiddenKing;
+        return TeamSlotNumbers(room, firstTeam)
+            .Concat(TeamSlotNumbers(room, secondTeam))
+            .ToList();
+    }
+
+    private static List<int> TeamSlotNumbers(DraftRoom room, DeadlockTeam team) =>
+        ActiveSlots(room)
+            .Where(slot => slot.Team == team)
+            .OrderBy(slot => slot.TeamIndex())
+            .Select(slot => slot.SlotNumber)
+            .ToList();
 }
 
 public sealed class AbilityAssignmentService
@@ -240,6 +342,13 @@ public sealed class AbilityAssignmentService
 
     public void ApplyAbilityPick(DraftRoom room, DraftPlayerSlot slot, AbilityDefinition ability)
     {
+        if (room.Config.FlexibleUltimateSlots)
+        {
+            PlaceRegularAbility(slot.Loadout.RegularAbilities, ability.Key, room.Config.RequiredAbilitySlots);
+            room.PickedAbilityKeys.Add(ability.Key);
+            return;
+        }
+
         if (ability.PickKind == DraftPickKind.UltimateAbility)
         {
             slot.Loadout.Ultimate = ability.Key;
@@ -265,19 +374,38 @@ public sealed class AbilityAssignmentService
                 messages.Add($"Player {player.SlotNumber}: missing or invalid hero.");
             }
 
-            if (room.Bans.BannedHeroes.Contains(player.HeroKey ?? string.Empty))
+            if (DraftPoolGenerator.IsHeroBanned(player.HeroKey ?? string.Empty, room.Bans, room.Config.CustomBans))
             {
                 messages.Add($"Player {player.SlotNumber}: hero '{player.HeroKey}' is banned.");
             }
 
-            if (CountRegularAbilities(player.Loadout.RegularAbilities) != room.Config.RegularAbilityPicksPerPlayer)
+            if (room.Config.FlexibleUltimateSlots)
             {
-                messages.Add($"Player {player.SlotNumber}: expected {room.Config.RegularAbilityPicksPerPlayer} regular abilities.");
-            }
+                if (CountRegularAbilities(player.Loadout.RegularAbilities) != room.Config.RequiredAbilitySlots)
+                {
+                    messages.Add($"Player {player.SlotNumber}: expected {room.Config.RequiredAbilitySlots} ability slots.");
+                }
 
-            if (string.IsNullOrWhiteSpace(player.Loadout.Ultimate))
+                var ultimateCount = player.Loadout.RegularAbilities
+                    .Where(key => !string.IsNullOrWhiteSpace(key))
+                    .Select(key => room.DeadlockData.Abilities.FirstOrDefault(ability => ability.Key == key))
+                    .Count(ability => ability?.PickKind == DraftPickKind.UltimateAbility);
+                if (ultimateCount < room.Config.UltimatePicksPerPlayer)
+                {
+                    messages.Add($"Player {player.SlotNumber}: expected at least {room.Config.UltimatePicksPerPlayer} ultimate ability pick.");
+                }
+            }
+            else
             {
-                messages.Add($"Player {player.SlotNumber}: missing ultimate.");
+                if (CountRegularAbilities(player.Loadout.RegularAbilities) != room.Config.RegularAbilityPicksPerPlayer)
+                {
+                    messages.Add($"Player {player.SlotNumber}: expected {room.Config.RegularAbilityPicksPerPlayer} regular abilities.");
+                }
+
+                if (room.Config.UltimatePicksPerPlayer > 0 && string.IsNullOrWhiteSpace(player.Loadout.Ultimate))
+                {
+                    messages.Add($"Player {player.SlotNumber}: missing ultimate.");
+                }
             }
 
             foreach (var abilityKey in player.Loadout.PickedAbilityKeys())
@@ -289,10 +417,22 @@ public sealed class AbilityAssignmentService
                 }
 
                 var ability = room.DeadlockData.Abilities.First(item => item.Key == abilityKey);
-                if (DraftPoolGenerator.IsAbilityBanned(ability, room.Bans, room.DeadlockData))
+                if (DraftPoolGenerator.IsAbilityBanned(ability, room.Bans, room.Config.CustomBans, room.DeadlockData))
                 {
                     messages.Add($"Player {player.SlotNumber}: ability '{abilityKey}' is banned.");
                 }
+            }
+        }
+
+        if (!room.Config.AllowDuplicateHeroes)
+        {
+            foreach (var duplicate in DraftTurnService.ActiveSlots(room)
+                         .Select(player => player.HeroKey ?? string.Empty)
+                         .Where(key => !string.IsNullOrWhiteSpace(key))
+                         .GroupBy(key => key, StringComparer.Ordinal)
+                         .Where(group => group.Count() > 1))
+            {
+                messages.Add($"Duplicate hero '{duplicate.Key}' is picked {duplicate.Count()} times.");
             }
         }
 
@@ -380,6 +520,7 @@ public sealed class DraftRoomService(
     private const string TimerWarningSound = "/sounds/timer-warning.mp3";
     private const string DraftStartSound = "/sounds/draft-start.mp3";
     private const string AutoPickSound = "/sounds/auto-pick.mp3";
+    private const int MaxChatMessageLength = 300;
 
     public DraftRoom? GetRoom(string code) => _rooms.TryGetValue(NormalizeCode(code), out var room) ? room : null;
 
@@ -467,17 +608,9 @@ public sealed class DraftRoomService(
             Code = code,
             Name = string.IsNullOrWhiteSpace(roomName) ? "Deadlock Ability Draft" : roomName.Trim(),
             DeadlockData = snapshot.Data,
-            Bans = snapshot.Bans,
-            Config =
-            {
-                DraftMode = config.DraftMode,
-                AllowDuplicateAbilities = config.AllowDuplicateAbilities,
-                AllowEmptySlotsAsBots = config.AllowEmptySlotsAsBots,
-                AllowHostOverridePicks = config.AllowHostOverridePicks,
-                PreparationSeconds = PositiveOrDefault(config.PreparationSeconds, defaultTiming.PreparationSeconds, 30),
-                PickSeconds = PositiveOrDefault(config.PickSeconds, defaultTiming.PickSeconds, 10)
-            }
+            Bans = snapshot.Bans
         };
+        ApplyRoomConfig(room.Config, config, snapshot.Data, defaultTiming);
 
         _rooms[code] = room;
         var result = AddClient(room, hostName, hostTeam, isHost: true);
@@ -519,9 +652,9 @@ public sealed class DraftRoomService(
                 return;
             }
 
-            if (room.Clients.Count(item => item.PlayerId != playerId && item.Team == team) >= 6)
+            if (room.Clients.Count(item => item.PlayerId != playerId && item.Team == team) >= TeamCapacity(room.Config, team))
             {
-                throw new InvalidOperationException($"{TeamName(team)} already has 6 players.");
+                throw new InvalidOperationException($"{TeamName(team)} already has {TeamCapacity(room.Config, team)} players.");
             }
 
             client.Team = team;
@@ -543,12 +676,7 @@ public sealed class DraftRoomService(
                 throw new InvalidOperationException("Room settings can only be changed before the draft starts.");
             }
 
-            room.Config.DraftMode = config.DraftMode;
-            room.Config.AllowDuplicateAbilities = config.AllowDuplicateAbilities;
-            room.Config.AllowEmptySlotsAsBots = config.AllowEmptySlotsAsBots;
-            room.Config.AllowHostOverridePicks = config.AllowHostOverridePicks;
-            room.Config.PreparationSeconds = PositiveOrDefault(config.PreparationSeconds, room.Config.PreparationSeconds, timingOptions.Value.PreparationSeconds, 30);
-            room.Config.PickSeconds = PositiveOrDefault(config.PickSeconds, room.Config.PickSeconds, timingOptions.Value.PickSeconds, 10);
+            ApplyRoomConfig(room.Config, config, room.DeadlockData, timingOptions.Value, room.Clients);
         }
 
         Notify(room.Code);
@@ -571,6 +699,34 @@ public sealed class DraftRoomService(
                     slot.LastSeenUtc = DateTime.UtcNow;
                 }
             }
+        }
+
+        Notify(room.Code);
+    }
+
+    public void SendChatMessage(string code, string playerId, DraftChatScope scope, string message)
+    {
+        var room = GetRequiredRoom(code);
+        lock (room)
+        {
+            var client = GetClient(room, playerId);
+            AddChatMessage(room, client, scope, message, isQuick: false);
+        }
+
+        Notify(room.Code);
+    }
+
+    public void SendQuickChat(string code, string playerId, string pickedKey, DraftQuickChatAction action)
+    {
+        var room = GetRequiredRoom(code);
+        lock (room)
+        {
+            var client = GetClient(room, playerId);
+            var itemName = QuickChatItemName(room, pickedKey);
+            var text = action == DraftQuickChatAction.Recommend
+                ? $"I recommend picking {itemName}"
+                : $"I want to pick {itemName}";
+            AddChatMessage(room, client, DraftChatScope.Allies, text, isQuick: true);
         }
 
         Notify(room.Code);
@@ -755,6 +911,12 @@ public sealed class DraftRoomService(
                 throw new InvalidOperationException("Every joined player must have a display name before the draft starts.");
             }
 
+            if (room.Config.DraftMode == DraftMode.Custom)
+            {
+                ValidateRoomStartConfig(room);
+                ApplyTeamBalance(room);
+            }
+
             AssignDraftSlots(room, room.Clients);
 
             if (!DraftTurnService.ActiveSlots(room).Any())
@@ -763,16 +925,16 @@ public sealed class DraftRoomService(
             }
 
             var warnings = new List<string>();
-            var heroPool = draftPoolGenerator.GenerateHeroPool(room.DeadlockData, room.Bans, room.Config.HeroPoolSize);
+            var heroPool = draftPoolGenerator.GenerateHeroPool(room.DeadlockData, room.Bans, room.Config, room.Config.HeroPoolSize);
             if (heroPool.Count < room.Config.HeroPoolSize)
             {
-                throw new InvalidOperationException("Not enough non-banned heroes to create a 12-hero draft pool.");
+                throw new InvalidOperationException($"Not enough non-banned heroes to create a {room.Config.HeroPoolSize}-hero draft pool.");
             }
 
             room.DraftHeroPoolKeys.Clear();
             room.DraftHeroPoolKeys.AddRange(heroPool.Select(hero => hero.Key));
             room.DraftAbilityPool.Clear();
-            room.DraftAbilityPool.AddRange(draftPoolGenerator.GenerateAbilityPool(heroPool, room.DeadlockData, room.Bans, warnings));
+            room.DraftAbilityPool.AddRange(draftPoolGenerator.GenerateAbilityPool(heroPool, room.DeadlockData, room.Bans, room.Config, warnings));
             room.DraftAbilityPoolKeys.Clear();
             foreach (var abilityKey in room.DraftAbilityPool.Select(item => item.AbilityKey))
             {
@@ -853,10 +1015,11 @@ public sealed class DraftRoomService(
             var slot = room.Players.FirstOrDefault(player => player.SlotNumber == slotNumber)
                        ?? throw new InvalidOperationException("Invalid player slot.");
             EnsureCanReorderForSlot(room, slot, playerId);
-            ValidateRegularAbilityMove(slot, fromIndex, toIndex, room.Config.RegularAbilityPicksPerPlayer);
+            var maxSlots = room.Config.FlexibleUltimateSlots ? room.Config.RequiredAbilitySlots : room.Config.RegularAbilityPicksPerPlayer;
+            ValidateRegularAbilityMove(slot, fromIndex, toIndex, maxSlots);
 
             var abilities = slot.Loadout.RegularAbilities;
-            EnsureRegularSlotCapacity(abilities, room.Config.RegularAbilityPicksPerPlayer);
+            EnsureRegularSlotCapacity(abilities, maxSlots);
             (abilities[fromIndex], abilities[toIndex]) = (abilities[toIndex], abilities[fromIndex]);
         }
 
@@ -973,6 +1136,11 @@ public sealed class DraftRoomService(
             });
         }
 
+        if (room.Config.DraftMode == DraftMode.Custom)
+        {
+            ValidateForcedBuildPick(room, slot, actualKind, requiredKind);
+        }
+
         if (actualKind == DraftPickKind.Hero)
         {
             if (!room.DraftHeroPoolKeys.Contains(pickedKey))
@@ -980,12 +1148,12 @@ public sealed class DraftRoomService(
                 throw new InvalidOperationException("Hero is not in this room's draft pool.");
             }
 
-            if (room.PickedHeroKeys.Contains(pickedKey))
+            if (!room.Config.AllowDuplicateHeroes && room.PickedHeroKeys.Contains(pickedKey))
             {
                 throw new InvalidOperationException("Hero has already been picked.");
             }
 
-            if (room.Bans.BannedHeroes.Contains(pickedKey))
+            if (DraftPoolGenerator.IsHeroBanned(pickedKey, room.Bans, room.Config.CustomBans))
             {
                 throw new InvalidOperationException("Hero is banned.");
             }
@@ -1010,9 +1178,19 @@ public sealed class DraftRoomService(
 
         var ability = room.DeadlockData.Abilities.FirstOrDefault(item => item.Key == pickedKey)
                       ?? throw new InvalidOperationException("Ability was not found in abilities.vdata.");
-        if (DraftPoolGenerator.IsAbilityBanned(ability, room.Bans, room.DeadlockData))
+        if (DraftPoolGenerator.IsAbilityBanned(ability, room.Bans, room.Config.CustomBans, room.DeadlockData))
         {
             throw new InvalidOperationException("Ability is banned.");
+        }
+
+        if (room.Config.FlexibleUltimateSlots)
+        {
+            if (CountRegularAbilities(slot.Loadout.RegularAbilities) >= room.Config.RequiredAbilitySlots)
+            {
+                throw new InvalidOperationException("This slot already has all ability slots filled.");
+            }
+
+            return;
         }
 
         if (actualKind == DraftPickKind.RegularAbility && CountRegularAbilities(slot.Loadout.RegularAbilities) >= room.Config.RegularAbilityPicksPerPlayer)
@@ -1023,6 +1201,67 @@ public sealed class DraftRoomService(
         if (actualKind == DraftPickKind.UltimateAbility && !string.IsNullOrWhiteSpace(slot.Loadout.Ultimate))
         {
             throw new InvalidOperationException("This slot already has an ultimate.");
+        }
+    }
+
+    private static void ValidateForcedBuildPick(DraftRoom room, DraftPlayerSlot slot, DraftPickKind actualKind, DraftPickKind requiredKind)
+    {
+        if (requiredKind is not (DraftPickKind.Any or DraftPickKind.AnyAbility))
+        {
+            return;
+        }
+
+        var remainingTurns = room.TurnOrder
+            .Skip(room.CurrentTurnIndex)
+            .Count(turn => turn.SlotNumber == slot.SlotNumber);
+        var heroNeeded = string.IsNullOrWhiteSpace(slot.HeroKey) ? 1 : 0;
+        var regularNeeded = Math.Max(0, room.Config.RegularAbilityPicksPerPlayer - CountRegularAbilities(slot.Loadout.RegularAbilities));
+        var ultimateNeeded = room.Config.FlexibleUltimateSlots
+            ? 0
+            : Math.Max(0, room.Config.UltimatePicksPerPlayer - (string.IsNullOrWhiteSpace(slot.Loadout.Ultimate) ? 0 : 1));
+        var flexibleUltimateNeeded = room.Config.FlexibleUltimateSlots
+            ? Math.Max(0, room.Config.UltimatePicksPerPlayer - slot.Loadout.RegularAbilities
+                .Where(key => !string.IsNullOrWhiteSpace(key))
+                .Select(key => room.DeadlockData.Abilities.FirstOrDefault(ability => ability.Key == key))
+                .Count(ability => ability?.PickKind == DraftPickKind.UltimateAbility))
+            : 0;
+        var flexibleAbilityNeeded = room.Config.FlexibleUltimateSlots
+            ? Math.Max(0, room.Config.RequiredAbilitySlots - CountRegularAbilities(slot.Loadout.RegularAbilities))
+            : 0;
+
+        if (requiredKind == DraftPickKind.AnyAbility)
+        {
+            heroNeeded = 0;
+        }
+
+        if (heroNeeded > 0 && remainingTurns <= heroNeeded && actualKind != DraftPickKind.Hero)
+        {
+            throw new InvalidOperationException("You must pick a hero now to complete your build.");
+        }
+
+        if (room.Config.FlexibleUltimateSlots)
+        {
+            if (flexibleUltimateNeeded > 0 && remainingTurns <= flexibleUltimateNeeded && actualKind != DraftPickKind.UltimateAbility)
+            {
+                throw new InvalidOperationException("You must pick an ultimate now to complete your build.");
+            }
+
+            if (flexibleAbilityNeeded > 0 && remainingTurns <= flexibleAbilityNeeded && actualKind is not (DraftPickKind.RegularAbility or DraftPickKind.UltimateAbility))
+            {
+                throw new InvalidOperationException("You must pick an ability now to complete your build.");
+            }
+
+            return;
+        }
+
+        if (regularNeeded > 0 && remainingTurns <= regularNeeded && actualKind != DraftPickKind.RegularAbility)
+        {
+            throw new InvalidOperationException("You must pick a regular ability now to complete your build.");
+        }
+
+        if (ultimateNeeded > 0 && remainingTurns <= ultimateNeeded && actualKind != DraftPickKind.UltimateAbility)
+        {
+            throw new InvalidOperationException("You must pick an ultimate now to complete your build.");
         }
     }
 
@@ -1179,6 +1418,14 @@ public sealed class DraftRoomService(
         }
 
         var slot = room.Players.First(player => player.SlotNumber == turn.SlotNumber);
+        if (room.Config.AutoPickBehavior == DraftAutoPickBehavior.SkipPick &&
+            CanSkipPickWithoutBreakingBuild(room, slot))
+        {
+            room.ValidationMessages.Add($"{slot.NameOrFallback} skipped a pick.");
+            AdvanceTurn(room);
+            return;
+        }
+
         var candidate = FindRandomValidPick(room, slot, turn.PickKind);
         if (candidate is null)
         {
@@ -1191,6 +1438,20 @@ public sealed class DraftRoomService(
         ApplyPick(room, slot, candidate, kind);
         AddSound(room, DraftSoundScope.All, AutoPickSound);
         AdvanceTurn(room);
+    }
+
+    private static bool CanSkipPickWithoutBreakingBuild(DraftRoom room, DraftPlayerSlot slot)
+    {
+        var remainingTurnsAfterSkip = room.TurnOrder
+            .Skip(room.CurrentTurnIndex + 1)
+            .Count(turn => turn.SlotNumber == slot.SlotNumber);
+        var heroNeeded = string.IsNullOrWhiteSpace(slot.HeroKey) ? 1 : 0;
+        var abilityNeeded = room.Config.FlexibleUltimateSlots
+            ? Math.Max(0, room.Config.RequiredAbilitySlots - CountRegularAbilities(slot.Loadout.RegularAbilities))
+            : Math.Max(0, room.Config.RegularAbilityPicksPerPlayer - CountRegularAbilities(slot.Loadout.RegularAbilities)) +
+              Math.Max(0, room.Config.UltimatePicksPerPlayer - (string.IsNullOrWhiteSpace(slot.Loadout.Ultimate) ? 0 : 1));
+
+        return remainingTurnsAfterSkip >= heroNeeded + abilityNeeded;
     }
 
     private string? FindRandomValidPick(DraftRoom room, DraftPlayerSlot slot, DraftPickKind requiredKind)
@@ -1206,7 +1467,7 @@ public sealed class DraftRoomService(
             candidates.AddRange(room.DraftAbilityPoolKeys);
         }
 
-        return candidates
+        var validCandidates = candidates
             .Where(key =>
             {
                 try
@@ -1220,8 +1481,23 @@ public sealed class DraftRoomService(
                     return false;
                 }
             })
-            .OrderBy(_ => RandomNumberGenerator.GetInt32(int.MaxValue))
-            .FirstOrDefault();
+            .ToList();
+
+        if (room.Config.AutoPickBehavior == DraftAutoPickBehavior.SameSourceHeroIfPossible &&
+            !string.IsNullOrWhiteSpace(slot.HeroKey))
+        {
+            var sameSourcePick = validCandidates
+                .Select(key => room.DeadlockData.Abilities.FirstOrDefault(ability => ability.Key == key))
+                .Where(ability => ability?.SourceHeroKey == slot.HeroKey)
+                .OrderBy(_ => RandomNumberGenerator.GetInt32(int.MaxValue))
+                .FirstOrDefault();
+            if (sameSourcePick is not null)
+            {
+                return sameSourcePick.Key;
+            }
+        }
+
+        return validCandidates.OrderBy(_ => RandomNumberGenerator.GetInt32(int.MaxValue)).FirstOrDefault();
     }
 
     private static string? CurrentTurnPlayerId(DraftRoom room)
@@ -1315,25 +1591,76 @@ public sealed class DraftRoomService(
         }
     }
 
+    private static void ValidateRoomStartConfig(DraftRoom room)
+    {
+        if (room.Clients.Count > room.Config.MaxPlayers)
+        {
+            throw new InvalidOperationException($"This room allows {room.Config.MaxPlayers} players, but {room.Clients.Count} joined.");
+        }
+
+        var hiddenKingCount = room.Clients.Count(client => client.Team == DeadlockTeam.HiddenKing);
+        var archmotherCount = room.Clients.Count(client => client.Team == DeadlockTeam.Archmother);
+        if (room.Config.TeamBalance == DraftTeamBalance.RequireEqualTeams && hiddenKingCount != archmotherCount)
+        {
+            throw new InvalidOperationException("Custom team balance requires equal teams before starting.");
+        }
+
+        var availableHeroes = room.DeadlockData.Heroes
+            .Count(hero => !DraftPoolGenerator.IsHeroBanned(hero.Key, room.Bans, room.Config.CustomBans));
+        if (room.Config.HeroPoolSize > availableHeroes)
+        {
+            throw new InvalidOperationException($"Hero pool size cannot exceed available non-banned heroes ({availableHeroes}).");
+        }
+
+        var activePlayerCount = room.Config.AllowEmptySlotsAsBots ? room.Config.MaxPlayers : room.Clients.Count;
+        if (!room.Config.AllowDuplicateHeroes && room.Config.HeroPoolSize < activePlayerCount)
+        {
+            throw new InvalidOperationException("Hero pool size must be at least active player count unless duplicate heroes are allowed.");
+        }
+    }
+
+    private static void ApplyTeamBalance(DraftRoom room)
+    {
+        if (room.Config.TeamBalance != DraftTeamBalance.AutoBalanceOnStart)
+        {
+            return;
+        }
+
+        var clients = room.Clients.OrderBy(_ => RandomNumberGenerator.GetInt32(int.MaxValue)).ToList();
+        var hiddenCapacity = TeamDraftSlotCount(room.Config, DeadlockTeam.HiddenKing);
+        for (var i = 0; i < clients.Count; i++)
+        {
+            clients[i].Team = i < hiddenCapacity ? DeadlockTeam.HiddenKing : DeadlockTeam.Archmother;
+            clients[i].IsReady = false;
+        }
+    }
+
     private static void AssignDraftSlots(DraftRoom room, IReadOnlyCollection<DraftClientSession> clients)
     {
         room.Players.Clear();
 
-        AddTeamSlots(room, DeadlockTeam.HiddenKing, clients.Where(client => client.Team == DeadlockTeam.HiddenKing).ToList());
-        AddTeamSlots(room, DeadlockTeam.Archmother, clients.Where(client => client.Team == DeadlockTeam.Archmother).ToList());
+        var hiddenKing = clients.Where(client => client.Team == DeadlockTeam.HiddenKing).ToList();
+        var archmother = clients.Where(client => client.Team == DeadlockTeam.Archmother).ToList();
+        var hiddenTarget = room.Config.AllowEmptySlotsAsBots ? TeamDraftSlotCount(room.Config, DeadlockTeam.HiddenKing) : hiddenKing.Count;
+        var archTarget = room.Config.AllowEmptySlotsAsBots ? TeamDraftSlotCount(room.Config, DeadlockTeam.Archmother) : archmother.Count;
+        BalanceDraftSlotTargets(room.Config.MaxPlayers, hiddenKing.Count, archmother.Count, ref hiddenTarget, ref archTarget);
+
+        AddTeamSlots(room, DeadlockTeam.HiddenKing, hiddenKing, hiddenTarget, firstSlotNumber: 1);
+        AddTeamSlots(room, DeadlockTeam.Archmother, archmother, archTarget, firstSlotNumber: hiddenTarget + 1);
     }
 
-    private static void AddTeamSlots(DraftRoom room, DeadlockTeam team, List<DraftClientSession> clients)
+    private static void AddTeamSlots(DraftRoom room, DeadlockTeam team, List<DraftClientSession> clients, int targetCount, int firstSlotNumber)
     {
-        var shuffled = clients.OrderBy(_ => RandomNumberGenerator.GetInt32(int.MaxValue)).ToList();
-        var targetCount = room.Config.AllowEmptySlotsAsBots ? 6 : shuffled.Count;
-        var baseSlotNumber = team == DeadlockTeam.HiddenKing ? 1 : 7;
+        var shuffled = room.Config.DraftMode == DraftMode.Custom && room.Config.PickOrder == DraftPickOrder.FixedLobbyOrder
+            ? clients.ToList()
+            : clients.OrderBy(_ => RandomNumberGenerator.GetInt32(int.MaxValue)).ToList();
 
         for (var i = 0; i < targetCount; i++)
         {
             var slot = new DraftPlayerSlot
             {
-                SlotNumber = baseSlotNumber + i,
+                SlotNumber = firstSlotNumber + i,
+                TeamSlotIndex = i + 1,
                 Team = team,
                 IsReady = i >= shuffled.Count
             };
@@ -1360,6 +1687,28 @@ public sealed class DraftRoomService(
         }
     }
 
+    private static void BalanceDraftSlotTargets(int maxPlayers, int hiddenPlayers, int archPlayers, ref int hiddenTarget, ref int archTarget)
+    {
+        hiddenTarget = Math.Max(hiddenTarget, hiddenPlayers);
+        archTarget = Math.Max(archTarget, archPlayers);
+        var max = Math.Max(1, maxPlayers <= 0 ? 12 : maxPlayers);
+        while (hiddenTarget + archTarget > max)
+        {
+            if (hiddenTarget > hiddenPlayers && hiddenTarget >= archTarget)
+            {
+                hiddenTarget--;
+            }
+            else if (archTarget > archPlayers)
+            {
+                archTarget--;
+            }
+            else
+            {
+                break;
+            }
+        }
+    }
+
     private JoinRoomResult AddClient(DraftRoom room, string playerName, DeadlockTeam team, bool isHost)
     {
         if (string.IsNullOrWhiteSpace(playerName))
@@ -1367,9 +1716,15 @@ public sealed class DraftRoomService(
             throw new InvalidOperationException("Enter your name before joining.");
         }
 
-        if (room.Clients.Count(client => client.Team == team) >= 6)
+        var capacity = TeamCapacity(room.Config, team);
+        if (room.Clients.Count >= Math.Max(1, room.Config.MaxPlayers <= 0 ? 12 : room.Config.MaxPlayers))
         {
-            throw new InvalidOperationException($"{TeamName(team)} already has 6 players.");
+            throw new InvalidOperationException($"This room already has the max player count ({room.Config.MaxPlayers}).");
+        }
+
+        if (room.Clients.Count(client => client.Team == team) >= capacity)
+        {
+            throw new InvalidOperationException($"{TeamName(team)} already has {capacity} players.");
         }
 
         var client = new DraftClientSession
@@ -1580,6 +1935,86 @@ public sealed class DraftRoomService(
         }
     }
 
+    private static void AddChatMessage(DraftRoom room, DraftClientSession client, DraftChatScope scope, string message, bool isQuick)
+    {
+        if (room.Config.DisableChat)
+        {
+            throw new InvalidOperationException("Chat is disabled for this room.");
+        }
+
+        if (!client.IsConnected)
+        {
+            throw new InvalidOperationException("Reconnect before sending chat messages.");
+        }
+
+        var clean = CleanChatMessage(message);
+        if (string.IsNullOrWhiteSpace(clean))
+        {
+            throw new InvalidOperationException("Enter a message before sending.");
+        }
+
+        if (clean.Length > MaxChatMessageLength)
+        {
+            throw new InvalidOperationException($"Chat messages cannot be longer than {MaxChatMessageLength} characters.");
+        }
+
+        var id = room.ChatMessages.Count == 0 ? 1 : room.ChatMessages[^1].Id + 1;
+        room.ChatMessages.Add(new DraftChatMessage(
+            id,
+            client.PlayerId,
+            client.DisplayName,
+            client.Team,
+            scope,
+            clean,
+            DateTime.UtcNow,
+            isQuick));
+
+        if (room.ChatMessages.Count > 200)
+        {
+            room.ChatMessages.RemoveRange(0, room.ChatMessages.Count - 200);
+        }
+    }
+
+    private static string CleanChatMessage(string message)
+    {
+        var trimmed = (message ?? string.Empty).Trim();
+        if (trimmed.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        var builder = new StringBuilder(trimmed.Length);
+        foreach (var character in trimmed)
+        {
+            builder.Append(char.IsControl(character) ? ' ' : character);
+        }
+
+        return string.Join(' ', builder.ToString().Split(' ', StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    private static string QuickChatItemName(DraftRoom room, string pickedKey)
+    {
+        var hero = room.DeadlockData.Heroes.FirstOrDefault(item => item.Key == pickedKey);
+        if (hero is not null)
+        {
+            return hero.DisplayName;
+        }
+
+        var ability = room.DeadlockData.Abilities.FirstOrDefault(item => item.Key == pickedKey);
+        if (ability is null)
+        {
+            throw new InvalidOperationException("That draft item was not found.");
+        }
+
+        return IsBlindRegularHidden(room, ability) ? "Hidden ability" : ability.DisplayName;
+    }
+
+    private static bool IsBlindRegularHidden(DraftRoom room, AbilityDefinition ability) =>
+        room.Config.DraftMode == DraftMode.Custom &&
+        room.Config.BlindDraft &&
+        room.Status != DraftRoomStatus.Completed &&
+        ability.PickKind == DraftPickKind.RegularAbility;
+
     private static string NormalizeCode(string code) => code.Trim().ToUpperInvariant();
 
     private void RecordCompletedDraftStats(DraftRoom room)
@@ -1611,6 +2046,7 @@ public sealed class DraftRoomService(
         DraftMode.FreePick => "Free Pick",
         DraftMode.Classic => "Classic",
         DraftMode.RandomHero => "Random Hero",
+        DraftMode.Custom => "Custom",
         _ => "Unknown"
     };
 
@@ -1623,6 +2059,136 @@ public sealed class DraftRoomService(
 
     private static string StatsTeamCode(DraftPlayerSlot player) =>
         player.IsHost ? $"{TeamCode(player.Team)}*" : TeamCode(player.Team);
+
+    private static void ApplyRoomConfig(
+        DraftRoomConfig target,
+        DraftRoomConfig source,
+        ParsedDeadlockData data,
+        DraftTimingOptions timing,
+        IReadOnlyCollection<DraftClientSession>? existingClients = null)
+    {
+        target.DraftMode = source.DraftMode;
+        target.AllowEmptySlotsAsBots = source.AllowEmptySlotsAsBots;
+        target.AllowHostOverridePicks = source.DraftMode == DraftMode.Custom && source.AllowHostOverridePicks;
+
+        if (source.DraftMode != DraftMode.Custom)
+        {
+            target.AllowDuplicateAbilities = false;
+            target.AllowDuplicateHeroes = false;
+            target.FlexibleUltimateSlots = false;
+            target.BlindDraft = false;
+            target.MaxPlayers = 12;
+            target.HeroPoolSize = 12;
+            target.DisableChat = source.DisableChat;
+            target.PreparationSeconds = PositiveOrDefault(timing.PreparationSeconds, 30);
+            target.PickSeconds = PositiveOrDefault(timing.PickSeconds, 10);
+            target.RequiredHeroCount = 1;
+            target.RequiredAbilitySlots = 4;
+            target.RegularAbilityPicksPerPlayer = 3;
+            target.UltimatePicksPerPlayer = 1;
+            target.PickOrder = DraftPickOrder.AlternatingTeamsSnake;
+            target.AutoPickBehavior = DraftAutoPickBehavior.RandomValidPick;
+            target.TeamBalance = DraftTeamBalance.AllowUnevenTeams;
+            ReplaceBanList(target.CustomBans, new DeadlockBanList());
+            return;
+        }
+
+        target.PreparationSeconds = PositiveOrDefault(source.PreparationSeconds, timing.PreparationSeconds, 30);
+        target.PickSeconds = PositiveOrDefault(source.PickSeconds, timing.PickSeconds, 10);
+        target.HeroPoolSize = Math.Clamp(source.HeroPoolSize <= 0 ? 12 : source.HeroPoolSize, 1, Math.Max(1, data.Heroes.Count));
+        target.MaxPlayers = Math.Clamp(source.MaxPlayers <= 0 ? target.HeroPoolSize : source.MaxPlayers, 1, target.HeroPoolSize);
+        target.AllowDuplicateAbilities = source.AllowDuplicateAbilities;
+        target.AllowDuplicateHeroes = source.AllowDuplicateHeroes;
+        target.FlexibleUltimateSlots = source.FlexibleUltimateSlots;
+        target.BlindDraft = source.BlindDraft;
+        target.DisableChat = source.DisableChat;
+        target.RequiredHeroCount = 1;
+        target.RequiredAbilitySlots = 4;
+        target.UltimatePicksPerPlayer = target.FlexibleUltimateSlots ? 0 : 1;
+        if (!target.FlexibleUltimateSlots)
+        {
+            target.RequiredAbilitySlots = Math.Min(target.RequiredAbilitySlots, 3 + target.UltimatePicksPerPlayer);
+        }
+
+        target.RegularAbilityPicksPerPlayer = target.FlexibleUltimateSlots
+            ? target.RequiredAbilitySlots
+            : Math.Max(0, target.RequiredAbilitySlots - target.UltimatePicksPerPlayer);
+        target.PickOrder = source.PickOrder;
+        target.AutoPickBehavior = source.AutoPickBehavior;
+        target.TeamBalance = source.TeamBalance;
+        ReplaceBanList(target.CustomBans, CloneCustomBans(source.CustomBans, data));
+        ValidateRoomConfig(target, data, existingClients);
+    }
+
+    private static void ValidateRoomConfig(DraftRoomConfig config, ParsedDeadlockData data, IReadOnlyCollection<DraftClientSession>? clients)
+    {
+        if (clients is not null)
+        {
+            if (clients.Count > config.MaxPlayers)
+            {
+                throw new InvalidOperationException($"Max players cannot be lower than the current lobby size ({clients.Count}).");
+            }
+
+            foreach (var team in Enum.GetValues<DeadlockTeam>())
+            {
+                var teamCount = clients.Count(client => client.Team == team);
+                var capacity = TeamCapacity(config, team);
+                if (teamCount > capacity)
+                {
+                    throw new InvalidOperationException($"{TeamName(team)} already has {teamCount} players; this Custom max allows {capacity}.");
+                }
+            }
+        }
+
+        var availableNonBannedHeroes = data.Heroes.Count(hero => !DraftPoolGenerator.IsHeroBanned(hero.Key, new DeadlockBanList(), config.CustomBans));
+        if (config.HeroPoolSize > availableNonBannedHeroes)
+        {
+            throw new InvalidOperationException($"Hero pool size cannot exceed available non-banned heroes ({availableNonBannedHeroes}).");
+        }
+
+        if (config.MaxPlayers > config.HeroPoolSize)
+        {
+            throw new InvalidOperationException("Max players cannot be higher than hero pool size.");
+        }
+
+    }
+
+    private static DeadlockBanList CloneCustomBans(DeadlockBanList source, ParsedDeadlockData data)
+    {
+        var bans = new DeadlockBanList();
+        ReplaceBanList(bans, source);
+        bans.UnbannedAbilities.RemoveWhere(key =>
+        {
+            var ability = data.Abilities.FirstOrDefault(item => item.Key == key);
+            return ability is null || DraftPoolGenerator.IsAbilityAutoBanned(ability, data);
+        });
+        return bans;
+    }
+
+    private static void ReplaceBanList(DeadlockBanList target, DeadlockBanList source)
+    {
+        target.BannedHeroes.Clear();
+        target.UnbannedHeroes.Clear();
+        target.BannedAbilities.Clear();
+        target.UnbannedAbilities.Clear();
+        target.BannedHeroes.UnionWith(source.BannedHeroes);
+        target.UnbannedHeroes.UnionWith(source.UnbannedHeroes);
+        target.BannedAbilities.UnionWith(source.BannedAbilities);
+        target.UnbannedAbilities.UnionWith(source.UnbannedAbilities);
+    }
+
+    private static int TeamCapacity(DraftRoomConfig config, DeadlockTeam team)
+    {
+        return TeamDraftSlotCount(config, team);
+    }
+
+    private static int TeamDraftSlotCount(DraftRoomConfig config, DeadlockTeam team)
+    {
+        var maxPlayers = Math.Max(1, config.MaxPlayers <= 0 ? 12 : config.MaxPlayers);
+        var hiddenKing = (maxPlayers + 1) / 2;
+        var archmother = maxPlayers / 2;
+        return team == DeadlockTeam.HiddenKing ? hiddenKing : archmother;
+    }
 
     private static int PositiveOrDefault(params int[] values)
     {
@@ -1685,12 +2251,7 @@ public sealed class ModFileGenerator
             heroObject.Set("m_bAvailableInHeroLabs", new Kv3Scalar(false));
 
             boundAbilities.Set("ESlot_Weapon_Primary", new Kv3Scalar(player.Loadout.Weapon ?? string.Empty));
-            var signatureAbilities = EnsureUnique([
-                EnsureType(player.Loadout.RegularAbilities.ElementAtOrDefault(0) ?? string.Empty, "EAbilityType_Signature", "signature", abilitiesDocument),
-                EnsureType(player.Loadout.RegularAbilities.ElementAtOrDefault(1) ?? string.Empty, "EAbilityType_Signature", "signature", abilitiesDocument),
-                EnsureType(player.Loadout.RegularAbilities.ElementAtOrDefault(2) ?? string.Empty, "EAbilityType_Signature", "signature", abilitiesDocument),
-                EnsureType(player.Loadout.Ultimate ?? string.Empty, "EAbilityType_Ultimate", "ultimate", abilitiesDocument)
-            ], abilitiesDocument);
+            var signatureAbilities = EnsureUnique(SlotAbilities(room, player, abilitiesDocument), abilitiesDocument);
 
             for (var i = 0; i < signatureAbilities.Count; i++)
             {
@@ -1705,6 +2266,30 @@ public sealed class ModFileGenerator
         };
 
         return files;
+    }
+
+    private static IReadOnlyList<string> SlotAbilities(DraftRoom room, DraftPlayerSlot player, Kv3Document abilitiesDocument)
+    {
+        if (!room.Config.FlexibleUltimateSlots)
+        {
+            return [
+                EnsureType(player.Loadout.RegularAbilities.ElementAtOrDefault(0) ?? string.Empty, "EAbilityType_Signature", "signature", abilitiesDocument),
+                EnsureType(player.Loadout.RegularAbilities.ElementAtOrDefault(1) ?? string.Empty, "EAbilityType_Signature", "signature", abilitiesDocument),
+                EnsureType(player.Loadout.RegularAbilities.ElementAtOrDefault(2) ?? string.Empty, "EAbilityType_Signature", "signature", abilitiesDocument),
+                EnsureType(player.Loadout.Ultimate ?? string.Empty, "EAbilityType_Ultimate", "ultimate", abilitiesDocument)
+            ];
+        }
+
+        var slotAbilities = new List<string>();
+        for (var i = 0; i < Math.Max(4, room.Config.RequiredAbilitySlots); i++)
+        {
+            var ability = player.Loadout.RegularAbilities.ElementAtOrDefault(i) ?? string.Empty;
+            slotAbilities.Add(i == 3
+                ? EnsureType(ability, "EAbilityType_Ultimate", "ultimate", abilitiesDocument)
+                : EnsureType(ability, "EAbilityType_Signature", "signature", abilitiesDocument));
+        }
+
+        return slotAbilities;
     }
 
     private static string EnsureType(string abilityName, string abilityType, string suffix, Kv3Document abilitiesDocument)
@@ -3036,7 +3621,9 @@ public static class DraftDisplayExtensions
     };
 
     public static int TeamIndex(this DraftPlayerSlot slot) =>
-        slot.Team == DeadlockTeam.HiddenKing ? slot.SlotNumber : slot.SlotNumber - 6;
+        slot.TeamSlotIndex > 0
+            ? slot.TeamSlotIndex
+            : slot.Team == DeadlockTeam.HiddenKing ? slot.SlotNumber : slot.SlotNumber - 6;
 }
 
 public sealed class DraftCacheCleanupService(

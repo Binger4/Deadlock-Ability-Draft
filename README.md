@@ -165,8 +165,29 @@ The admin panel also shows draft statistics. Active drafts are read from memory 
 ## Draft Timers
 
 - 30 second preparation phase.
-- 10 seconds per pick.
+- 20 seconds per pick.
 - If time expires, the server auto-picks a valid item.
+
+## Custom Rooms
+
+Custom mode adds room-only settings for larger hero pools, max lobby players, duplicate picks, team order, timers, flexible slots, and custom bans.
+
+
+## Room Chat
+
+Chat is enabled by default for every draft mode. Hosts can enable `Disable chat` when creating or editing a room.
+
+Chat scopes:
+
+- `Allies` sends only to your team
+- `All` sends to both teams
+
+Nicknames use team colors. Right click a player name in chat or on the draft panels to mute/unmute that player locally for your current session.
+
+Right click a hero, ability, or ultimate card to send quick ally messages:
+
+- `Want this`
+- `Recommend`
 
 ## Bans
 

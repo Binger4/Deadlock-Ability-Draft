@@ -116,6 +116,7 @@ public sealed class DraftStatsService(
         DraftMode.FreePick => "Free Pick",
         DraftMode.Classic => "Classic",
         DraftMode.RandomHero => "Random Hero",
+        DraftMode.Custom => "Custom",
         _ => "Unknown"
     };
 

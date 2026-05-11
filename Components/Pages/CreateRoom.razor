@@ -2,9 +2,11 @@
 @rendermode InteractiveServer
 @using abilitydraft.Models
 @using abilitydraft.Services
+@using Microsoft.Extensions.Options
 @inject DraftRoomService RoomService
 @inject ServerDeadlockDataService DataService
 @inject NavigationManager Nav
+@inject IOptions<DraftTimingOptions> TimingOptions
 
 <PageTitle>Create Draft Room</PageTitle>
 
@@ -52,19 +54,20 @@
                 <option value="@DraftMode.FreePick">FreePick: heroes, abilities, and ultimates in any order</option>
                 <option value="@DraftMode.Classic">Classic: heroes first, then abilities</option>
                 <option value="@DraftMode.RandomHero">Random Hero: heroes assigned, abilities drafted</option>
+                <option value="@DraftMode.Custom">Custom: advanced room-specific rules</option>
             </select>
         </label>
+        @if (SelectedDraftMode == DraftMode.Custom)
+        {
+            @CustomSettingsPanel()
+        }
         <label class="toggle">
-            <input type="checkbox" @bind="AllowDuplicates" />
-            <span>Allow duplicate ability picks</span>
+            <input type="checkbox" @bind="DisableChat" />
+            <span>Disable chat</span>
         </label>
         <label class="toggle">
             <input type="checkbox" @bind="AllowBots" />
             <span>Allow empty slots as bots</span>
-        </label>
-        <label class="toggle">
-            <input type="checkbox" @bind="AllowHostOverride" />
-            <span>Allow host override picks/reorder for human slots</span>
         </label>
         <button class="primary" disabled="@(!Snapshot.IsLoaded)" @onclick="Create">Create room</button>
         @if (!string.IsNullOrWhiteSpace(Message))
@@ -80,9 +83,25 @@
     private string HostName = string.Empty;
     private DeadlockTeam SelectedTeam = DeadlockTeam.HiddenKing;
     private DraftMode SelectedDraftMode = DraftMode.FreePick;
-    private bool AllowDuplicates;
     private bool AllowBots;
     private bool AllowHostOverride;
+    private bool DisableChat;
+    private int CustomHeroPoolSize = 12;
+    private int CustomMaxPlayers = 12;
+    private bool CustomAllowDuplicateHeroes;
+    private bool CustomAllowDuplicateAbilities;
+    private bool CustomFlexibleUltimates;
+    private bool CustomBlindDraft;
+    private int CustomPreparationSeconds;
+    private int CustomPickSeconds;
+    private DraftPickOrder CustomPickOrder = DraftPickOrder.AlternatingTeamsSnake;
+    private DraftAutoPickBehavior CustomAutoPickBehavior = DraftAutoPickBehavior.RandomValidPick;
+    private DraftTeamBalance CustomTeamBalance = DraftTeamBalance.AllowUnevenTeams;
+    private string CustomBanSearch = string.Empty;
+    private readonly HashSet<string> CustomBannedHeroes = new(StringComparer.Ordinal);
+    private readonly HashSet<string> CustomUnbannedHeroes = new(StringComparer.Ordinal);
+    private readonly HashSet<string> CustomBannedAbilities = new(StringComparer.Ordinal);
+    private readonly HashSet<string> CustomUnbannedAbilities = new(StringComparer.Ordinal);
     private string Message = string.Empty;
     private DeadlockDataSnapshot Snapshot => DataService.Current;
     private int BannedAbilityCount => Snapshot.Data is null
@@ -94,18 +113,18 @@
                 .Select(ability => ability.Key))
             .Distinct(StringComparer.Ordinal)
             .Count();
+    private int MaxCustomHeroPool => Math.Max(1, Snapshot.Data?.Heroes.Count ?? 12);
+    private int MaxCustomPlayers => Math.Max(1, CustomHeroPoolSize);
+    private int DefaultPreparationSeconds => PositiveOrDefault(TimingOptions.Value.PreparationSeconds, 30);
+    private int DefaultPickSeconds => PositiveOrDefault(TimingOptions.Value.PickSeconds, 10);
+    private int EffectivePreparationSeconds => PositiveOrDefault(CustomPreparationSeconds, DefaultPreparationSeconds);
+    private int EffectivePickSeconds => PositiveOrDefault(CustomPickSeconds, DefaultPickSeconds);
 
     private void Create()
     {
         try
         {
-            var result = RoomService.CreateRoom(RoomName, HostName, SelectedTeam, new DraftRoomConfig
-            {
-                DraftMode = SelectedDraftMode,
-                AllowDuplicateAbilities = AllowDuplicates,
-                AllowEmptySlotsAsBots = AllowBots,
-                AllowHostOverridePicks = AllowHostOverride
-            });
+            var result = RoomService.CreateRoom(RoomName, HostName, SelectedTeam, BuildDraftConfig());
             Nav.NavigateTo($"/room/{result.RoomCode}/lobby?playerId={result.PlayerId}");
         }
         catch (Exception ex)
@@ -113,4 +132,233 @@
             Message = ex.Message;
         }
     }
+
+    private DraftRoomConfig BuildDraftConfig()
+    {
+        var config = new DraftRoomConfig
+        {
+            DraftMode = SelectedDraftMode,
+            AllowEmptySlotsAsBots = AllowBots,
+            AllowHostOverridePicks = SelectedDraftMode == DraftMode.Custom && AllowHostOverride,
+            DisableChat = DisableChat,
+            MaxPlayers = Math.Clamp(CustomMaxPlayers, 1, MaxCustomPlayers),
+            HeroPoolSize = CustomHeroPoolSize,
+            AllowDuplicateHeroes = SelectedDraftMode == DraftMode.Custom && CustomAllowDuplicateHeroes,
+            AllowDuplicateAbilities = SelectedDraftMode == DraftMode.Custom && CustomAllowDuplicateAbilities,
+            FlexibleUltimateSlots = SelectedDraftMode == DraftMode.Custom && CustomFlexibleUltimates,
+            BlindDraft = SelectedDraftMode == DraftMode.Custom && CustomBlindDraft,
+            PreparationSeconds = SelectedDraftMode == DraftMode.Custom ? EffectivePreparationSeconds : 0,
+            PickSeconds = SelectedDraftMode == DraftMode.Custom ? EffectivePickSeconds : 0,
+            RequiredHeroCount = 1,
+            RequiredAbilitySlots = 4,
+            UltimatePicksPerPlayer = SelectedDraftMode == DraftMode.Custom && CustomFlexibleUltimates ? 0 : 1,
+            PickOrder = CustomPickOrder,
+            AutoPickBehavior = CustomAutoPickBehavior,
+            TeamBalance = CustomTeamBalance
+        };
+        config.CustomBans.BannedHeroes.UnionWith(CustomBannedHeroes);
+        config.CustomBans.UnbannedHeroes.UnionWith(CustomUnbannedHeroes);
+        config.CustomBans.BannedAbilities.UnionWith(CustomBannedAbilities);
+        config.CustomBans.UnbannedAbilities.UnionWith(CustomUnbannedAbilities);
+        return config;
+    }
+
+    protected override void OnInitialized()
+    {
+        CustomPreparationSeconds = DefaultPreparationSeconds;
+        CustomPickSeconds = DefaultPickSeconds;
+    }
+
+    private RenderFragment CustomSettingsPanel() => @<section class="custom-settings-panel">
+            <div class="custom-settings-header">
+                <div>
+                    <strong>Custom draft rules</strong>
+                    <span>These settings apply only to this room.</span>
+                </div>
+            </div>
+
+            <div class="custom-settings-grid">
+                <label>
+                    <span>Hero pool size</span>
+                    <input type="number" min="1" max="@MaxCustomHeroPool" @bind="CustomHeroPoolSize" @bind:after="ClampCustomPlayerLimits" />
+                </label>
+                <label>
+                    <span>Max players in lobby</span>
+                    <input type="number" min="1" max="@MaxCustomPlayers" @bind="CustomMaxPlayers" @bind:after="ClampCustomPlayerLimits" />
+                </label>
+                <label>
+                    <span>Pick order</span>
+                    <select @bind="CustomPickOrder">
+                        <option value="@DraftPickOrder.AlternatingTeamsSnake">Alternating teams snake order</option>
+                        <option value="@DraftPickOrder.AlternatingTeamsForward">Alternating teams forward order</option>
+                        <option value="@DraftPickOrder.RandomPlayerEachRound">Random player order each round</option>
+                    </select>
+                </label>
+                <label>
+                    <span>Auto-pick behavior</span>
+                    <select @bind="CustomAutoPickBehavior">
+                        <option value="@DraftAutoPickBehavior.RandomValidPick">Random valid pick</option>
+                        <option value="@DraftAutoPickBehavior.SkipPick">Skip pick</option>
+                        <option value="@DraftAutoPickBehavior.SameSourceHeroIfPossible">Pick from same source hero if possible</option>
+                    </select>
+                </label>
+                <label>
+                    <span>Team balance</span>
+                    <select @bind="CustomTeamBalance">
+                        <option value="@DraftTeamBalance.AllowUnevenTeams">Allow uneven teams</option>
+                        <option value="@DraftTeamBalance.RequireEqualTeams">Require equal teams</option>
+                        <option value="@DraftTeamBalance.AutoBalanceOnStart">Auto-balance teams on draft start</option>
+                    </select>
+                </label>
+                <label>
+                    <span>Preparation time</span>
+                    <input type="number" min="1" @bind="CustomPreparationSeconds" placeholder="@DefaultPreparationSeconds" />
+                </label>
+                <label>
+                    <span>Pick timer</span>
+                    <input type="number" min="1" @bind="CustomPickSeconds" placeholder="@DefaultPickSeconds" />
+                </label>
+            </div>
+
+            <div class="custom-toggle-grid">
+                <label class="toggle"><input type="checkbox" @bind="CustomAllowDuplicateHeroes" /><span>Allow duplicate heroes</span></label>
+                <label class="toggle"><input type="checkbox" @bind="CustomAllowDuplicateAbilities" /><span>Allow duplicate abilities</span></label>
+                <label class="toggle"><input type="checkbox" @bind="CustomFlexibleUltimates" /><span>Flexible ultimate slots</span></label>
+                <label class="toggle"><input type="checkbox" @bind="CustomBlindDraft" /><span>Blind draft</span></label>
+                <label class="toggle"><input type="checkbox" @bind="AllowHostOverride" /><span>Allow host override picks/reorder for human slots</span></label>
+            </div>
+
+            <details class="custom-ban-panel">
+                <summary>Custom bans</summary>
+                <input class="custom-search" placeholder="Search heroes or abilities" @bind="CustomBanSearch" @bind:event="oninput" />
+                <div class="custom-ban-columns">
+                    <div>
+                        <h4>Heroes</h4>
+                        @foreach (var hero in FilteredHeroes())
+                        {
+                            var defaultBanned = Snapshot.Bans.BannedHeroes.Contains(hero.Key);
+                            <label class="custom-ban-row">
+                                @HeroIcon(hero)
+                                <span>
+                                    <strong>@hero.DisplayName</strong>
+                                    <small>@hero.Key</small>
+                                    @if (defaultBanned)
+                                    {
+                                        <em>Banned by default</em>
+                                    }
+                                </span>
+                                <label><input type="checkbox" checked="@CustomBannedHeroes.Contains(hero.Key)" @onchange="args => ToggleSet(CustomBannedHeroes, hero.Key, args)" /> Ban</label>
+                                <label><input type="checkbox" checked="@CustomUnbannedHeroes.Contains(hero.Key)" @onchange="args => ToggleSet(CustomUnbannedHeroes, hero.Key, args)" /> Unban</label>
+                            </label>
+                        }
+                    </div>
+                    <div>
+                        <h4>Abilities</h4>
+                        @foreach (var ability in FilteredAbilities())
+                        {
+                            var autoBanned = Snapshot.Data is not null && DraftPoolGenerator.IsAbilityAutoBanned(ability, Snapshot.Data);
+                            var defaultBanned = Snapshot.Data is not null && DraftPoolGenerator.IsAbilityBanned(ability, Snapshot.Bans, Snapshot.Data);
+                            <div class="custom-ban-row ability-ban-row">
+                                @AbilityIcon(ability)
+                                <span>
+                                    <strong>@ability.DisplayName</strong>
+                                    <small>@ability.Key - @ability.SourceHeroName</small>
+                                    @if (autoBanned)
+                                    {
+                                        <em>Unknown source</em>
+                                    }
+                                    else if (defaultBanned)
+                                    {
+                                        <em>Banned by default</em>
+                                    }
+                                </span>
+                                <label><input type="checkbox" checked="@CustomBannedAbilities.Contains(ability.Key)" @onchange="args => ToggleSet(CustomBannedAbilities, ability.Key, args)" /> Ban</label>
+                                <label><input type="checkbox" disabled="@autoBanned" checked="@CustomUnbannedAbilities.Contains(ability.Key)" @onchange="args => ToggleSet(CustomUnbannedAbilities, ability.Key, args)" /> Unban</label>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </details>
+    </section>;
+
+    private IEnumerable<HeroDefinition> FilteredHeroes()
+    {
+        var heroes = Snapshot.Data?.Heroes ?? [];
+        return heroes
+            .Where(hero => MatchesSearch(hero.DisplayName, hero.Key))
+            .OrderBy(hero => hero.DisplayName);
+    }
+
+    private IEnumerable<AbilityDefinition> FilteredAbilities()
+    {
+        var abilities = Snapshot.Data?.Abilities ?? [];
+        return abilities
+            .Where(ability => ability.PickKind is DraftPickKind.RegularAbility or DraftPickKind.UltimateAbility)
+            .Where(ability => Snapshot.Data is null || !DraftPoolGenerator.IsAbilityAutoBanned(ability, Snapshot.Data))
+            .Where(ability => MatchesSearch(ability.DisplayName, ability.Key, ability.SourceHeroName))
+            .OrderBy(ability => ability.DisplayName);
+    }
+
+    private bool MatchesSearch(params string[] values)
+    {
+        if (string.IsNullOrWhiteSpace(CustomBanSearch))
+        {
+            return true;
+        }
+
+        return values.Any(value => value.Contains(CustomBanSearch, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static void ToggleSet(HashSet<string> set, string key, ChangeEventArgs args)
+    {
+        if (args.Value is bool enabled && enabled)
+        {
+            set.Add(key);
+        }
+        else
+        {
+            set.Remove(key);
+        }
+    }
+
+    private void ClampCustomPlayerLimits()
+    {
+        CustomHeroPoolSize = Math.Clamp(CustomHeroPoolSize, 1, MaxCustomHeroPool);
+        CustomMaxPlayers = Math.Clamp(CustomMaxPlayers, 1, MaxCustomPlayers);
+    }
+
+    private static int PositiveOrDefault(params int[] values)
+    {
+        foreach (var value in values)
+        {
+            if (value > 0)
+            {
+                return value;
+            }
+        }
+
+        return 1;
+    }
+
+    private RenderFragment HeroIcon(HeroDefinition hero) => builder =>
+    {
+        if (!string.IsNullOrWhiteSpace(hero.IconDataUrl))
+        {
+            builder.OpenElement(0, "img");
+            builder.AddAttribute(1, "src", hero.IconDataUrl);
+            builder.AddAttribute(2, "alt", hero.DisplayName);
+            builder.CloseElement();
+        }
+    };
+
+    private RenderFragment AbilityIcon(AbilityDefinition ability) => builder =>
+    {
+        if (!string.IsNullOrWhiteSpace(ability.IconDataUrl))
+        {
+            builder.OpenElement(0, "img");
+            builder.AddAttribute(1, "src", ability.IconDataUrl);
+            builder.AddAttribute(2, "alt", ability.DisplayName);
+            builder.CloseElement();
+        }
+    };
 }

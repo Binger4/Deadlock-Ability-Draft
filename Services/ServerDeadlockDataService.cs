@@ -227,7 +227,7 @@ public sealed class ServerDeadlockDataService(
         if (!File.Exists(path))
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            File.WriteAllText(path, "{\n  \"bannedHeroes\": [],\n  \"bannedAbilities\": [],\n  \"unbannedAbilities\": []\n}\n", Encoding.UTF8);
+            File.WriteAllText(path, "{\n  \"bannedHeroes\": [],\n  \"unbannedHeroes\": [],\n  \"bannedAbilities\": [],\n  \"unbannedAbilities\": []\n}\n", Encoding.UTF8);
             warnings.Add($"Created empty bans file at {path}.");
             return new DeadlockBanList();
         }
@@ -241,6 +241,7 @@ public sealed class ServerDeadlockDataService(
             return new DeadlockBanList
             {
                 BannedHeroes = document.BannedHeroes.Where(value => !string.IsNullOrWhiteSpace(value)).ToHashSet(StringComparer.Ordinal),
+                UnbannedHeroes = document.UnbannedHeroes.Where(value => !string.IsNullOrWhiteSpace(value)).ToHashSet(StringComparer.Ordinal),
                 BannedAbilities = document.BannedAbilities.Where(value => !string.IsNullOrWhiteSpace(value)).ToHashSet(StringComparer.Ordinal),
                 UnbannedAbilities = document.UnbannedAbilities.Where(value => !string.IsNullOrWhiteSpace(value)).ToHashSet(StringComparer.Ordinal)
             };
@@ -358,6 +359,7 @@ public sealed class ServerDeadlockDataService(
     private sealed class BansJson
     {
         public List<string> BannedHeroes { get; set; } = [];
+        public List<string> UnbannedHeroes { get; set; } = [];
         public List<string> BannedAbilities { get; set; } = [];
         public List<string> UnbannedAbilities { get; set; } = [];
     }

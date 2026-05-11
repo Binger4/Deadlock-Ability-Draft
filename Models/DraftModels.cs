@@ -36,8 +36,8 @@ public sealed class GeneratedFilesOptions
 
 public sealed class DraftTimingOptions
 {
-    public int PreparationSeconds { get; set; }
-    public int PickSeconds { get; set; }
+    public int PreparationSeconds { get; set; } = 30;
+    public int PickSeconds { get; set; } = 10;
 }
 
 public sealed class DraftStatsOptions
@@ -93,6 +93,7 @@ public sealed record DeadlockVDataCheckResult(
 public sealed class DeadlockBanList
 {
     public HashSet<string> BannedHeroes { get; init; } = new(StringComparer.Ordinal);
+    public HashSet<string> UnbannedHeroes { get; init; } = new(StringComparer.Ordinal);
     public HashSet<string> BannedAbilities { get; init; } = new(StringComparer.Ordinal);
     public HashSet<string> UnbannedAbilities { get; init; } = new(StringComparer.Ordinal);
 }
@@ -184,6 +185,7 @@ public sealed class DraftRoom
     public int? TimerWarningTurnIndex { get; set; }
     public List<DraftPickRecord> PickHistory { get; init; } = [];
     public List<DraftSoundEvent> SoundEvents { get; init; } = [];
+    public List<DraftChatMessage> ChatMessages { get; init; } = [];
     public List<string> ValidationMessages { get; init; } = [];
     public byte[]? GeneratedZip { get; set; }
     public string? GeneratedZipName { get; set; }
@@ -202,12 +204,12 @@ public sealed class DraftRoom
         var slots = new List<DraftPlayerSlot>();
         for (var i = 1; i <= 6; i++)
         {
-            slots.Add(new DraftPlayerSlot { SlotNumber = i, Team = DeadlockTeam.HiddenKing });
+            slots.Add(new DraftPlayerSlot { SlotNumber = i, Team = DeadlockTeam.HiddenKing, TeamSlotIndex = i });
         }
 
         for (var i = 7; i <= 12; i++)
         {
-            slots.Add(new DraftPlayerSlot { SlotNumber = i, Team = DeadlockTeam.Archmother });
+            slots.Add(new DraftPlayerSlot { SlotNumber = i, Team = DeadlockTeam.Archmother, TeamSlotIndex = i - 6 });
         }
 
         return slots;
@@ -218,13 +220,24 @@ public sealed class DraftRoomConfig
 {
     public DraftMode DraftMode { get; set; } = DraftMode.FreePick;
     public bool AllowDuplicateAbilities { get; set; }
+    public bool AllowDuplicateHeroes { get; set; }
     public bool AllowEmptySlotsAsBots { get; set; }
     public bool AllowHostOverridePicks { get; set; }
+    public bool FlexibleUltimateSlots { get; set; }
+    public bool BlindDraft { get; set; }
+    public bool DisableChat { get; set; }
     public int PreparationSeconds { get; set; }
     public int PickSeconds { get; set; }
+    public int MaxPlayers { get; set; } = 12;
     public int HeroPoolSize { get; set; } = 12;
+    public int RequiredHeroCount { get; set; } = 1;
+    public int RequiredAbilitySlots { get; set; } = 4;
     public int RegularAbilityPicksPerPlayer { get; set; } = 3;
     public int UltimatePicksPerPlayer { get; set; } = 1;
+    public DraftPickOrder PickOrder { get; set; } = DraftPickOrder.AlternatingTeamsSnake;
+    public DraftAutoPickBehavior AutoPickBehavior { get; set; } = DraftAutoPickBehavior.RandomValidPick;
+    public DraftTeamBalance TeamBalance { get; set; } = DraftTeamBalance.AllowUnevenTeams;
+    public DeadlockBanList CustomBans { get; init; } = new();
 }
 
 public sealed class DraftClientSession
@@ -242,6 +255,7 @@ public sealed class DraftClientSession
 public sealed class DraftPlayerSlot
 {
     public int SlotNumber { get; init; }
+    public int TeamSlotIndex { get; init; }
     public DeadlockTeam Team { get; init; }
     public string? PlayerId { get; set; }
     public string DisplayName { get; set; } = string.Empty;
@@ -293,6 +307,7 @@ public sealed class DraftAbilityPoolItem
 public sealed record DraftTurn(int SlotNumber, DraftPickKind PickKind, int RoundNumber);
 public sealed record DraftPickRecord(int SlotNumber, DraftPickKind PickKind, string PickedKey, DateTime PickedUtc);
 public sealed record DraftSoundEvent(int Id, DraftSoundScope Scope, string SoundPath, string? TargetPlayerId, DateTime CreatedUtc);
+public sealed record DraftChatMessage(int Id, string SenderPlayerId, string SenderName, DeadlockTeam SenderTeam, DraftChatScope Scope, string Text, DateTime SentUtc, bool IsQuick);
 public sealed record JoinRoomResult(string RoomCode, string PlayerId, int? SlotNumber);
 public sealed record DraftStatsParticipantRecord(string Name, string Team);
 public sealed record ActiveDraftStatsRecord(
@@ -361,7 +376,44 @@ public enum DraftMode
 {
     FreePick,
     Classic,
-    RandomHero
+    RandomHero,
+    Custom
+}
+
+public enum DraftPickOrder
+{
+    AlternatingTeamsSnake,
+    AlternatingTeamsForward,
+    RandomPlayerEachRound,
+    FixedLobbyOrder,
+    HiddenKingFirst,
+    ArchmotherFirst
+}
+
+public enum DraftAutoPickBehavior
+{
+    RandomValidPick,
+    SkipPick,
+    SameSourceHeroIfPossible
+}
+
+public enum DraftTeamBalance
+{
+    AllowUnevenTeams,
+    RequireEqualTeams,
+    AutoBalanceOnStart
+}
+
+public enum DraftChatScope
+{
+    Allies,
+    All
+}
+
+public enum DraftQuickChatAction
+{
+    WantThis,
+    Recommend
 }
 
 public enum DraftPickKind

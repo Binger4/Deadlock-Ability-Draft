@@ -54,6 +54,15 @@ window.deadlockAbilityDraft.copyText = async (text) => {
     }
 };
 
+window.deadlockAbilityDraft.scrollToBottom = (element) => {
+    try {
+        if (element) {
+            element.scrollTop = element.scrollHeight;
+        }
+    } catch {
+    }
+};
+
 window.deadlockAbilityDraft.registerRoomPresence = (roomCode, playerId) => {
     if (!roomCode || !playerId || window.deadlockAbilityDraft.presenceRegistered === `${roomCode}:${playerId}`) {
         return;
