@@ -45,6 +45,10 @@ else
                 <a href="/" @onclick="DisconnectAndGoHome" @onclick:preventDefault="true">Home</a>
                 <p class="eyebrow">@CurrentRoom.Status</p>
                 <h1>@CurrentRoom.Name</h1>
+                @if (CurrentRoom.Config.DraftMode == DraftMode.Custom)
+                {
+                    <p>Custom base: <strong>@ModeLabel(CurrentRoom.Config.CustomBaseDraftMode)</strong></p>
+                }
                 <div class="room-share-row">
                     <button class="copy-chip" title="Copy hidden lobby code" @onclick="CopyRoomCode">
                         Room <code>@MaskedRoomCode</code>
@@ -61,8 +65,21 @@ else
             <div class="turn-box">
                 @if (CurrentRoom.CurrentTurn is null)
                 {
-                    <strong>@(CurrentRoom.Status == DraftRoomStatus.Lobby ? "Waiting in lobby" : "Draft complete")</strong>
-                    <span>@CurrentRoom.Clients.Count joined</span>
+                    @if (CurrentRoom.Status == DraftRoomStatus.Lobby)
+                    {
+                        <strong>Waiting in lobby</strong>
+                        <span>@CurrentRoom.Clients.Count joined</span>
+                    }
+                    else if (CurrentRoom.Status == DraftRoomStatus.Drafting && FullRandomActive)
+                    {
+                        <strong>Full Random</strong>
+                        <span>Rolling after preparation</span>
+                    }
+                    else
+                    {
+                        <strong>Draft complete</strong>
+                        <span>@CurrentRoom.Clients.Count joined</span>
+                    }
                 }
                 else
                 {
@@ -87,6 +104,7 @@ else
                     <p>Mode: <strong>@ModeLabel(CurrentRoom.Config.DraftMode)</strong></p>
                     @if (CurrentRoom.Config.DraftMode == DraftMode.Custom)
                     {
+                        <p>Base: <strong>@ModeLabel(CurrentRoom.Config.CustomBaseDraftMode)</strong></p>
                         <p>Max players: <strong>@CurrentRoom.Config.MaxPlayers</strong></p>
                         <p>Hero pool: <strong>@CurrentRoom.Config.HeroPoolSize</strong></p>
                         <p>Ability duplicates: <strong>@(CurrentRoom.Config.AllowDuplicateAbilities ? "Allowed" : "Blocked")</strong></p>
@@ -95,6 +113,7 @@ else
                         <p>Timers: <strong>@CurrentRoom.Config.PreparationSeconds/@CurrentRoom.Config.PickSeconds sec</strong></p>
                         <p>Slots: <strong>@(CurrentRoom.Config.FlexibleUltimateSlots ? "Flexible" : "Standard")</strong></p>
                         <p>Blind draft: <strong>@(CurrentRoom.Config.BlindDraft ? "Enabled" : "Off")</strong></p>
+                        <p>Full Random: <strong>@(CurrentRoom.Config.FullRandom ? "Enabled" : "Off")</strong></p>
                     }
                     <p>Chat: <strong>@(CurrentRoom.Config.DisableChat ? "Disabled" : "Enabled")</strong></p>
                     <p>Empty slots: <strong>@(CurrentRoom.Config.AllowEmptySlotsAsBots ? "Bots enabled" : "Removed at start")</strong></p>
@@ -203,11 +222,19 @@ else
                         }
                         else
                         {
-                            <span>@(CanPick ? "Your pick" : "Waiting for pick")</span>
-                            <strong>
-                                <span class="@(IsLocalCurrentTurn ? "own-turn-name" : null)">@CurrentTurnPlayer?.NameOrFallback drafts</span>
-                                <span>@PickKindLabel(CurrentRoom.CurrentTurn?.PickKind ?? DraftPickKind.RegularAbility)</span>
-                            </strong>
+                            @if (FullRandomActive)
+                            {
+                                <span>Full Random</span>
+                                <strong>Builds roll after preparation</strong>
+                            }
+                            else
+                            {
+                                <span>@(CanPick ? "Your pick" : "Waiting for pick")</span>
+                                <strong>
+                                    <span class="@(IsLocalCurrentTurn ? "own-turn-name" : null)">@CurrentTurnPlayer?.NameOrFallback drafts</span>
+                                    <span>@PickKindLabel(CurrentRoom.CurrentTurn?.PickKind ?? DraftPickKind.RegularAbility)</span>
+                                </strong>
+                            }
                         }
                     </div>
 
@@ -218,6 +245,11 @@ else
                         </div>
                         <b>@SecondsRemaining</b>
                     </section>
+
+                    @if (!CurrentRoom.Config.DisableChat)
+                    {
+                        @ChatPanel()
+                    }
 
                     <h2 class="board-heading ultimate-heading">Ultimate abilities</h2>
                     <section class="ultimate-top-panel">
@@ -235,10 +267,6 @@ else
                         }
                     </section>
 
-                    @if (!CurrentRoom.Config.DisableChat)
-                    {
-                        @ChatPanel()
-                    }
                 </section>
 
                 <aside class="team-column team-archmother">
@@ -428,8 +456,10 @@ else
     private bool LobbyAllowDuplicateHeroes;
     private bool LobbyFlexibleUltimates;
     private bool LobbyBlindDraft;
+    private bool LobbyFullRandom;
     private int LobbyPreparationSeconds;
     private int LobbyPickSeconds;
+    private DraftMode LobbyCustomBaseDraftMode = DraftMode.FreePick;
     private DraftPickOrder LobbyPickOrder = DraftPickOrder.AlternatingTeamsSnake;
     private DraftAutoPickBehavior LobbyAutoPickBehavior = DraftAutoPickBehavior.RandomValidPick;
     private DraftTeamBalance LobbyTeamBalance = DraftTeamBalance.AllowUnevenTeams;
@@ -451,6 +481,7 @@ else
     private RoomContextMenu? ActiveContextMenu;
     private ElementReference ChatLogElement;
     private int LastVisibleChatMessageId;
+    private bool ChatCollapsed;
     private bool PresenceRegistered;
     private bool LocalDisconnectReported;
 
@@ -465,6 +496,7 @@ else
     private bool BlindDraftActive => CurrentRoom?.Config.DraftMode == DraftMode.Custom &&
                                      CurrentRoom.Config.BlindDraft &&
                                      CurrentRoom.Status != DraftRoomStatus.Completed;
+    private bool FullRandomActive => CurrentRoom?.Config.DraftMode == DraftMode.Custom && CurrentRoom.Config.FullRandom;
     private string CurrentClientLabel => CurrentClient is null ? "Unknown" : $"{CurrentClient.DisplayName}, {TeamName(CurrentClient.Team)}";
     private string MaskedRoomCode => CurrentRoom is null ? "******" : new string('*', Math.Max(6, CurrentRoom.Code.Length));
     private int IconCount => CurrentRoom is null ? 0 : CurrentRoom.DeadlockData.Heroes.Count(hero => !string.IsNullOrWhiteSpace(hero.IconDataUrl)) + CurrentRoom.DeadlockData.Abilities.Count(ability => !string.IsNullOrWhiteSpace(ability.IconDataUrl));
@@ -497,7 +529,7 @@ else
         _ => CurrentRoom?.Status == DraftRoomStatus.Completed ? "Draft complete" : "Waiting"
     };
     private string TimerPlayerLabel => CurrentRoom?.TimerPhase == DraftTimerPhase.Preparation
-        ? $"First pick: {CurrentTurnPlayer?.NameOrFallback ?? "Pending"}"
+        ? FullRandomActive ? "Random builds after preparation" : $"First pick: {CurrentTurnPlayer?.NameOrFallback ?? "Pending"}"
         : $"{CurrentTurnPlayer?.NameOrFallback ?? "Pending"} - {CurrentTurnPlayer?.TeamName() ?? "Team"}";
 
     protected override void OnInitialized()
@@ -588,7 +620,7 @@ else
 
     private async Task ScrollChatIfNeeded()
     {
-        if (CurrentRoom is null || CurrentRoom.Config.DisableChat)
+        if (CurrentRoom is null || CurrentRoom.Config.DisableChat || ChatCollapsed)
         {
             return;
         }
@@ -631,8 +663,10 @@ else
         LobbyAllowDuplicateHeroes = CurrentRoom.Config.AllowDuplicateHeroes;
         LobbyFlexibleUltimates = CurrentRoom.Config.FlexibleUltimateSlots;
         LobbyBlindDraft = CurrentRoom.Config.BlindDraft;
+        LobbyFullRandom = CurrentRoom.Config.FullRandom;
         LobbyPreparationSeconds = CurrentRoom.Config.PreparationSeconds;
         LobbyPickSeconds = CurrentRoom.Config.PickSeconds;
+        LobbyCustomBaseDraftMode = CurrentRoom.Config.CustomBaseDraftMode;
         LobbyPickOrder = CurrentRoom.Config.PickOrder;
         LobbyAutoPickBehavior = CurrentRoom.Config.AutoPickBehavior;
         LobbyTeamBalance = CurrentRoom.Config.TeamBalance;
@@ -706,6 +740,14 @@ else
 
     private RenderFragment LobbyCustomSettingsPanel() => @<section class="custom-settings-panel compact-custom-settings">
         <div class="custom-settings-grid">
+            <label>
+                <span>Base draft type</span>
+                <select @bind="LobbyCustomBaseDraftMode">
+                    <option value="@DraftMode.FreePick">Free Pick</option>
+                    <option value="@DraftMode.Classic">Classic</option>
+                    <option value="@DraftMode.RandomHero">Random Hero</option>
+                </select>
+            </label>
             <label><span>Hero pool size</span><input type="number" min="1" max="@MaxLobbyHeroPool" @bind="LobbyHeroPoolSize" @bind:after="ClampLobbyPlayerLimits" /></label>
             <label><span>Max players in lobby</span><input type="number" min="1" max="@MaxLobbyPlayers" @bind="LobbyMaxPlayers" @bind:after="ClampLobbyPlayerLimits" /></label>
             <label>
@@ -740,6 +782,7 @@ else
             <label class="toggle"><input type="checkbox" @bind="LobbyAllowDuplicates" /><span>Allow duplicate abilities</span></label>
             <label class="toggle"><input type="checkbox" @bind="LobbyFlexibleUltimates" /><span>Flexible ultimate slots</span></label>
             <label class="toggle"><input type="checkbox" @bind="LobbyBlindDraft" /><span>Blind draft</span></label>
+            <label class="toggle"><input type="checkbox" @bind="LobbyFullRandom" /><span>Full Random</span></label>
             <label class="toggle"><input type="checkbox" @bind="LobbyAllowOverride" /><span>Host override picks/reorder</span></label>
         </div>
         <details class="custom-ban-panel">
@@ -1146,39 +1189,59 @@ else
             builder.AddContent(sequence++, Initials(displayName));
             builder.CloseElement();
         }
+        if (picked)
+        {
+            builder.OpenElement(sequence++, "span");
+            builder.AddAttribute(sequence++, "class", "picked-cross");
+            builder.AddAttribute(sequence++, "aria-hidden", "true");
+            builder.AddContent(sequence++, "X");
+            builder.CloseElement();
+        }
         builder.OpenElement(sequence++, "small");
         builder.AddContent(sequence++, displayName);
         builder.CloseElement();
         builder.CloseElement();
     };
 
-    private RenderFragment ChatPanel() => @<section class="draft-chat-panel">
-        <div class="chat-log" @ref="ChatLogElement">
-            @foreach (var message in VisibleChatMessages())
-            {
-                <p class="chat-message @(message.IsQuick ? "quick-chat" : string.Empty)">
-                    <span class="chat-scope">[@ChatScopeLabel(message.Scope)]</span>
-                    <button class="chat-name @TeamTextClass(message.SenderTeam)"
-                            title="Right click to mute"
-                            @oncontextmenu="args => OpenPlayerMenu(args, message.SenderPlayerId, message.SenderName)"
-                            @oncontextmenu:preventDefault="true">
-                        @message.SenderName
-                    </button>
-                    <span class="chat-text">: @message.Text</span>
-                </p>
-            }
+    private RenderFragment ChatPanel() => @<section class="draft-chat-panel @(ChatCollapsed ? "collapsed" : string.Empty)">
+        <div class="chat-panel-header">
+            <strong>Chat</strong>
+            <button class="chat-collapse-button"
+                    title="@(ChatCollapsed ? "Expand chat" : "Collapse chat")"
+                    aria-label="@(ChatCollapsed ? "Expand chat" : "Collapse chat")"
+                    @onclick="ToggleChatCollapsed">
+                @(ChatCollapsed ? "v" : "^")
+            </button>
         </div>
-        @if (CurrentClient is not null)
+        @if (!ChatCollapsed)
         {
-            <div class="chat-input-row">
-                <button class="chat-scope-toggle" title="Toggle chat scope" @onclick="ToggleChatScope">@ChatScopeLabel(ChatScope)</button>
-                <input maxlength="300"
-                       placeholder="Message"
-                       @bind="ChatText"
-                       @bind:event="oninput"
-                       @onkeydown="HandleChatKey" />
-                <button @onclick="SendChat">Send</button>
+            <div class="chat-log" @ref="ChatLogElement">
+                @foreach (var message in VisibleChatMessages())
+                {
+                    <p class="chat-message @(message.IsQuick ? "quick-chat" : string.Empty)">
+                        <span class="chat-scope">[@ChatScopeLabel(message.Scope)]</span>
+                        <button class="chat-name @TeamTextClass(message.SenderTeam)"
+                                title="Right click to mute"
+                                @oncontextmenu="args => OpenPlayerMenu(args, message.SenderPlayerId, message.SenderName)"
+                                @oncontextmenu:preventDefault="true">
+                            @message.SenderName
+                        </button>
+                        <span class="chat-text">: @message.Text</span>
+                    </p>
+                }
             </div>
+            @if (CurrentClient is not null)
+            {
+                <div class="chat-input-row">
+                    <button class="chat-scope-toggle" title="Toggle chat scope" @onclick="ToggleChatScope">@ChatScopeLabel(ChatScope)</button>
+                    <input maxlength="300"
+                           placeholder="Message"
+                           @bind="ChatText"
+                           @bind:event="oninput"
+                           @onkeydown="HandleChatKey" />
+                    <button @onclick="SendChat">Send</button>
+                </div>
+            }
         }
     </section>;
 
@@ -1216,6 +1279,8 @@ else
 
     private void ToggleChatScope() =>
         ChatScope = ChatScope == DraftChatScope.Allies ? DraftChatScope.All : DraftChatScope.Allies;
+
+    private void ToggleChatCollapsed() => ChatCollapsed = !ChatCollapsed;
 
     private void SendChat()
     {
@@ -1525,6 +1590,7 @@ else
         var config = new DraftRoomConfig
         {
             DraftMode = LobbyDraftMode,
+            CustomBaseDraftMode = LobbyDraftMode == DraftMode.Custom ? LobbyCustomBaseDraftMode : DraftMode.FreePick,
             AllowDuplicateAbilities = LobbyDraftMode == DraftMode.Custom && LobbyAllowDuplicates,
             AllowEmptySlotsAsBots = LobbyAllowBots,
             AllowHostOverridePicks = LobbyDraftMode == DraftMode.Custom && LobbyAllowOverride,
@@ -1534,6 +1600,7 @@ else
             AllowDuplicateHeroes = LobbyDraftMode == DraftMode.Custom && LobbyAllowDuplicateHeroes,
             FlexibleUltimateSlots = LobbyDraftMode == DraftMode.Custom && LobbyFlexibleUltimates,
             BlindDraft = LobbyDraftMode == DraftMode.Custom && LobbyBlindDraft,
+            FullRandom = LobbyDraftMode == DraftMode.Custom && LobbyFullRandom,
             PreparationSeconds = LobbyPreparationSeconds,
             PickSeconds = LobbyPickSeconds,
             RequiredHeroCount = 1,

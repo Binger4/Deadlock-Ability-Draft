@@ -175,27 +175,33 @@ public sealed class DraftTurnService
     public List<DraftTurn> BuildTurnOrder(DraftRoom room)
     {
         var turns = new List<DraftTurn>();
+        var mode = EffectiveDraftMode(room.Config);
+        var customOrder = room.Config.DraftMode == DraftMode.Custom;
+        List<int> RoundSlots(int roundNumber) => customOrder
+            ? CustomRoundSlotNumbers(room, roundNumber)
+            : SnakeTeamSlotNumbers(room, roundNumber);
 
-        switch (room.Config.DraftMode)
+        switch (mode)
         {
             case DraftMode.FreePick:
                 var totalRounds = 1 + room.Config.RegularAbilityPicksPerPlayer + room.Config.UltimatePicksPerPlayer;
                 for (var round = 1; round <= totalRounds; round++)
                 {
-                    turns.AddRange(SnakeTeamSlotNumbers(room, round).Select(slot => new DraftTurn(slot, DraftPickKind.Any, round)));
+                    turns.AddRange(RoundSlots(round).Select(slot => new DraftTurn(slot, DraftPickKind.Any, round)));
                 }
                 break;
             case DraftMode.Classic:
-                turns.AddRange(SnakeTeamSlotNumbers(room, 1).Select(slot => new DraftTurn(slot, DraftPickKind.Hero, 1)));
+                turns.AddRange(RoundSlots(1).Select(slot => new DraftTurn(slot, DraftPickKind.Hero, 1)));
                 var roundIndex = 2;
                 for (var i = 0; i < room.Config.RegularAbilityPicksPerPlayer; i++, roundIndex++)
                 {
-                    turns.AddRange(SnakeTeamSlotNumbers(room, roundIndex).Select(slot => new DraftTurn(slot, DraftPickKind.RegularAbility, roundIndex)));
+                    var pickKind = room.Config.FlexibleUltimateSlots ? DraftPickKind.AnyAbility : DraftPickKind.RegularAbility;
+                    turns.AddRange(RoundSlots(roundIndex).Select(slot => new DraftTurn(slot, pickKind, roundIndex)));
                 }
 
                 for (var i = 0; i < room.Config.UltimatePicksPerPlayer; i++, roundIndex++)
                 {
-                    turns.AddRange(SnakeTeamSlotNumbers(room, roundIndex).Select(slot => new DraftTurn(slot, DraftPickKind.UltimateAbility, roundIndex)));
+                    turns.AddRange(RoundSlots(roundIndex).Select(slot => new DraftTurn(slot, DraftPickKind.UltimateAbility, roundIndex)));
                 }
                 break;
             case DraftMode.RandomHero:
@@ -203,20 +209,21 @@ public sealed class DraftTurnService
                 var abilityRounds = room.Config.RegularAbilityPicksPerPlayer + room.Config.UltimatePicksPerPlayer;
                 for (var i = 0; i < abilityRounds; i++, abilityRound++)
                 {
-                    turns.AddRange(SnakeTeamSlotNumbers(room, abilityRound).Select(slot => new DraftTurn(slot, DraftPickKind.AnyAbility, abilityRound)));
-                }
-                break;
-            case DraftMode.Custom:
-                var customRounds = Math.Max(0, room.Config.RequiredHeroCount) + Math.Max(0, room.Config.RequiredAbilitySlots);
-                for (var round = 1; round <= customRounds; round++)
-                {
-                    turns.AddRange(CustomRoundSlotNumbers(room, round).Select(slot => new DraftTurn(slot, DraftPickKind.Any, round)));
+                    turns.AddRange(RoundSlots(abilityRound).Select(slot => new DraftTurn(slot, DraftPickKind.AnyAbility, abilityRound)));
                 }
                 break;
         }
 
         return turns;
     }
+
+    public static DraftMode EffectiveDraftMode(DraftRoomConfig config) =>
+        config.DraftMode == DraftMode.Custom
+            ? NormalizeCustomBaseDraftMode(config.CustomBaseDraftMode)
+            : config.DraftMode;
+
+    private static DraftMode NormalizeCustomBaseDraftMode(DraftMode mode) =>
+        mode is DraftMode.Classic or DraftMode.RandomHero ? mode : DraftMode.FreePick;
 
     public static IEnumerable<DraftPlayerSlot> ActiveSlots(DraftRoom room) =>
         room.Players.Where(slot => slot.IsClaimed);
@@ -943,7 +950,11 @@ public sealed class DraftRoomService(
 
             ResetPicks(room);
 
-            if (room.Config.DraftMode == DraftMode.RandomHero)
+            if (room.Config.FullRandom)
+            {
+                ValidateFullRandomDraft(room);
+            }
+            else if (DraftTurnService.EffectiveDraftMode(room.Config) == DraftMode.RandomHero)
             {
                 var activeSlots = DraftTurnService.ActiveSlots(room).ToList();
                 for (var i = 0; i < activeSlots.Count; i++)
@@ -954,7 +965,10 @@ public sealed class DraftRoomService(
 
             room.Status = DraftRoomStatus.Drafting;
             room.TurnOrder.Clear();
-            room.TurnOrder.AddRange(draftTurnService.BuildTurnOrder(room));
+            if (!room.Config.FullRandom)
+            {
+                room.TurnOrder.AddRange(draftTurnService.BuildTurnOrder(room));
+            }
             room.CurrentTurnIndex = 0;
             room.TimerPhase = DraftTimerPhase.Preparation;
             room.TimerEndsUtc = DateTime.UtcNow.AddSeconds(room.Config.PreparationSeconds);
@@ -1355,7 +1369,14 @@ public sealed class DraftRoomService(
             var now = DateTime.UtcNow;
             if (room.TimerPhase == DraftTimerPhase.Preparation && now >= room.TimerEndsUtc)
             {
-                BeginPickTimer(room, playTurnSound: true);
+                if (room.Config.FullRandom)
+                {
+                    CompleteFullRandomDraft(room);
+                }
+                else
+                {
+                    BeginPickTimer(room, playTurnSound: true);
+                }
                 shouldNotify = true;
             }
             else if (room.TimerPhase == DraftTimerPhase.Picking && now >= room.TimerEndsUtc)
@@ -1404,6 +1425,144 @@ public sealed class DraftRoomService(
             }
         }
     }
+
+    private void CompleteFullRandomDraft(DraftRoom room)
+    {
+        AssignFullRandomBuilds(room);
+        room.Status = DraftRoomStatus.Completed;
+        room.TimerPhase = DraftTimerPhase.None;
+        room.TimerEndsUtc = DateTime.UtcNow;
+        room.TimerWarningTurnIndex = null;
+        abilityAssignmentService.ValidateFinalDraft(room);
+        AddSound(room, DraftSoundScope.All, AutoPickSound);
+        RecordCompletedDraftStats(room);
+        StopRoomTimer(room.Code);
+    }
+
+    private void ValidateFullRandomDraft(DraftRoom room)
+    {
+        var activePlayerCount = DraftTurnService.ActiveSlots(room).Count();
+        if (activePlayerCount <= 0)
+        {
+            throw new InvalidOperationException("Full Random requires at least one active player.");
+        }
+
+        if (room.DraftHeroPoolKeys.Count == 0)
+        {
+            throw new InvalidOperationException("Full Random needs at least one valid hero in the draft pool.");
+        }
+
+        if (!room.Config.AllowDuplicateHeroes && room.DraftHeroPoolKeys.Count < activePlayerCount)
+        {
+            throw new InvalidOperationException($"Full Random needs at least {activePlayerCount} unique heroes or duplicate heroes enabled.");
+        }
+
+        var poolAbilities = DraftPoolAbilities(room).ToList();
+        if (room.Config.FlexibleUltimateSlots)
+        {
+            var needed = RequiredPoolCount(activePlayerCount, room.Config.RequiredAbilitySlots, room.Config.AllowDuplicateAbilities);
+            if (poolAbilities.Count < needed)
+            {
+                throw new InvalidOperationException($"Full Random needs at least {needed} valid abilities for flexible slots.");
+            }
+
+            return;
+        }
+
+        var regularAbilities = poolAbilities.Count(ability => ability.PickKind == DraftPickKind.RegularAbility);
+        var ultimateAbilities = poolAbilities.Count(ability => ability.PickKind == DraftPickKind.UltimateAbility);
+        var neededRegular = RequiredPoolCount(activePlayerCount, room.Config.RegularAbilityPicksPerPlayer, room.Config.AllowDuplicateAbilities);
+        var neededUltimate = RequiredPoolCount(activePlayerCount, room.Config.UltimatePicksPerPlayer, room.Config.AllowDuplicateAbilities);
+        if (regularAbilities < neededRegular)
+        {
+            throw new InvalidOperationException($"Full Random needs at least {neededRegular} valid regular abilities.");
+        }
+
+        if (ultimateAbilities < neededUltimate)
+        {
+            throw new InvalidOperationException($"Full Random needs at least {neededUltimate} valid ultimate abilities.");
+        }
+    }
+
+    private void AssignFullRandomBuilds(DraftRoom room)
+    {
+        var heroKeys = room.DraftHeroPoolKeys.ToList();
+        var regularAbilityKeys = DraftPoolAbilities(room)
+            .Where(ability => ability.PickKind == DraftPickKind.RegularAbility)
+            .Select(ability => ability.Key)
+            .ToList();
+        var ultimateAbilityKeys = DraftPoolAbilities(room)
+            .Where(ability => ability.PickKind == DraftPickKind.UltimateAbility)
+            .Select(ability => ability.Key)
+            .ToList();
+        var anyAbilityKeys = regularAbilityKeys.Concat(ultimateAbilityKeys).ToList();
+
+        foreach (var slot in DraftTurnService.ActiveSlots(room).OrderBy(_ => RandomNumberGenerator.GetInt32(int.MaxValue)))
+        {
+            var heroKey = SelectRandomKey(heroKeys, room.PickedHeroKeys, new HashSet<string>(StringComparer.Ordinal), room.Config.AllowDuplicateHeroes, "hero");
+            var hero = room.DeadlockData.Heroes.First(item => item.Key == heroKey);
+            abilityAssignmentService.ApplyHeroPick(room, slot, hero);
+            room.PickHistory.Add(new DraftPickRecord(slot.SlotNumber, DraftPickKind.Hero, heroKey, DateTime.UtcNow));
+
+            var localAbilities = new HashSet<string>(StringComparer.Ordinal);
+            if (room.Config.FlexibleUltimateSlots)
+            {
+                for (var i = 0; i < room.Config.RequiredAbilitySlots; i++)
+                {
+                    AssignRandomAbility(room, slot, anyAbilityKeys, localAbilities);
+                }
+            }
+            else
+            {
+                for (var i = 0; i < room.Config.RegularAbilityPicksPerPlayer; i++)
+                {
+                    AssignRandomAbility(room, slot, regularAbilityKeys, localAbilities);
+                }
+
+                for (var i = 0; i < room.Config.UltimatePicksPerPlayer; i++)
+                {
+                    AssignRandomAbility(room, slot, ultimateAbilityKeys, localAbilities);
+                }
+            }
+        }
+    }
+
+    private void AssignRandomAbility(DraftRoom room, DraftPlayerSlot slot, IReadOnlyList<string> pool, HashSet<string> localAbilities)
+    {
+        var abilityKey = SelectRandomKey(pool, room.PickedAbilityKeys, localAbilities, room.Config.AllowDuplicateAbilities, "ability");
+        var ability = room.DeadlockData.Abilities.First(item => item.Key == abilityKey);
+        abilityAssignmentService.ApplyAbilityPick(room, slot, ability);
+        localAbilities.Add(abilityKey);
+        room.PickHistory.Add(new DraftPickRecord(slot.SlotNumber, ability.PickKind, abilityKey, DateTime.UtcNow));
+    }
+
+    private static string SelectRandomKey(
+        IReadOnlyCollection<string> pool,
+        ISet<string> globalUsed,
+        ISet<string> localUsed,
+        bool allowGlobalDuplicates,
+        string itemType)
+    {
+        var candidates = pool
+            .Where(key => (allowGlobalDuplicates || !globalUsed.Contains(key)) && !localUsed.Contains(key))
+            .OrderBy(_ => RandomNumberGenerator.GetInt32(int.MaxValue))
+            .ToList();
+        if (candidates.Count == 0)
+        {
+            throw new InvalidOperationException($"Full Random could not find a valid {itemType} candidate.");
+        }
+
+        return candidates[0];
+    }
+
+    private IEnumerable<AbilityDefinition> DraftPoolAbilities(DraftRoom room) =>
+        room.DraftAbilityPoolKeys
+            .Select(key => room.DeadlockData.Abilities.FirstOrDefault(ability => ability.Key == key))
+            .Where(ability => ability is not null)
+            .Cast<AbilityDefinition>();
+
+    private static int RequiredPoolCount(int activePlayerCount, int picksPerPlayer, bool allowDuplicates) =>
+        picksPerPlayer <= 0 ? 0 : allowDuplicates ? picksPerPlayer : activePlayerCount * picksPerPlayer;
 
     private void AutoPick(DraftRoom room)
     {
@@ -2073,10 +2232,12 @@ public sealed class DraftRoomService(
 
         if (source.DraftMode != DraftMode.Custom)
         {
+            target.CustomBaseDraftMode = DraftMode.FreePick;
             target.AllowDuplicateAbilities = false;
             target.AllowDuplicateHeroes = false;
             target.FlexibleUltimateSlots = false;
             target.BlindDraft = false;
+            target.FullRandom = false;
             target.MaxPlayers = 12;
             target.HeroPoolSize = 12;
             target.DisableChat = source.DisableChat;
@@ -2093,6 +2254,9 @@ public sealed class DraftRoomService(
             return;
         }
 
+        target.CustomBaseDraftMode = source.CustomBaseDraftMode is DraftMode.Classic or DraftMode.RandomHero
+            ? source.CustomBaseDraftMode
+            : DraftMode.FreePick;
         target.PreparationSeconds = PositiveOrDefault(source.PreparationSeconds, timing.PreparationSeconds, 30);
         target.PickSeconds = PositiveOrDefault(source.PickSeconds, timing.PickSeconds, 10);
         target.HeroPoolSize = Math.Clamp(source.HeroPoolSize <= 0 ? 12 : source.HeroPoolSize, 1, Math.Max(1, data.Heroes.Count));
@@ -2101,6 +2265,7 @@ public sealed class DraftRoomService(
         target.AllowDuplicateHeroes = source.AllowDuplicateHeroes;
         target.FlexibleUltimateSlots = source.FlexibleUltimateSlots;
         target.BlindDraft = source.BlindDraft;
+        target.FullRandom = source.FullRandom;
         target.DisableChat = source.DisableChat;
         target.RequiredHeroCount = 1;
         target.RequiredAbilitySlots = 4;

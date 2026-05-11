@@ -92,8 +92,10 @@
     private bool CustomAllowDuplicateAbilities;
     private bool CustomFlexibleUltimates;
     private bool CustomBlindDraft;
+    private bool CustomFullRandom;
     private int CustomPreparationSeconds;
     private int CustomPickSeconds;
+    private DraftMode CustomBaseDraftMode = DraftMode.FreePick;
     private DraftPickOrder CustomPickOrder = DraftPickOrder.AlternatingTeamsSnake;
     private DraftAutoPickBehavior CustomAutoPickBehavior = DraftAutoPickBehavior.RandomValidPick;
     private DraftTeamBalance CustomTeamBalance = DraftTeamBalance.AllowUnevenTeams;
@@ -138,6 +140,7 @@
         var config = new DraftRoomConfig
         {
             DraftMode = SelectedDraftMode,
+            CustomBaseDraftMode = SelectedDraftMode == DraftMode.Custom ? CustomBaseDraftMode : DraftMode.FreePick,
             AllowEmptySlotsAsBots = AllowBots,
             AllowHostOverridePicks = SelectedDraftMode == DraftMode.Custom && AllowHostOverride,
             DisableChat = DisableChat,
@@ -147,6 +150,7 @@
             AllowDuplicateAbilities = SelectedDraftMode == DraftMode.Custom && CustomAllowDuplicateAbilities,
             FlexibleUltimateSlots = SelectedDraftMode == DraftMode.Custom && CustomFlexibleUltimates,
             BlindDraft = SelectedDraftMode == DraftMode.Custom && CustomBlindDraft,
+            FullRandom = SelectedDraftMode == DraftMode.Custom && CustomFullRandom,
             PreparationSeconds = SelectedDraftMode == DraftMode.Custom ? EffectivePreparationSeconds : 0,
             PickSeconds = SelectedDraftMode == DraftMode.Custom ? EffectivePickSeconds : 0,
             RequiredHeroCount = 1,
@@ -178,6 +182,14 @@
             </div>
 
             <div class="custom-settings-grid">
+                <label>
+                    <span>Base draft type</span>
+                    <select @bind="CustomBaseDraftMode">
+                        <option value="@DraftMode.FreePick">Free Pick</option>
+                        <option value="@DraftMode.Classic">Classic</option>
+                        <option value="@DraftMode.RandomHero">Random Hero</option>
+                    </select>
+                </label>
                 <label>
                     <span>Hero pool size</span>
                     <input type="number" min="1" max="@MaxCustomHeroPool" @bind="CustomHeroPoolSize" @bind:after="ClampCustomPlayerLimits" />
@@ -225,6 +237,7 @@
                 <label class="toggle"><input type="checkbox" @bind="CustomAllowDuplicateAbilities" /><span>Allow duplicate abilities</span></label>
                 <label class="toggle"><input type="checkbox" @bind="CustomFlexibleUltimates" /><span>Flexible ultimate slots</span></label>
                 <label class="toggle"><input type="checkbox" @bind="CustomBlindDraft" /><span>Blind draft</span></label>
+                <label class="toggle"><input type="checkbox" @bind="CustomFullRandom" /><span>Full Random</span></label>
                 <label class="toggle"><input type="checkbox" @bind="AllowHostOverride" /><span>Allow host override picks/reorder for human slots</span></label>
             </div>
 

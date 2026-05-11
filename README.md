@@ -170,7 +170,8 @@ The admin panel also shows draft statistics. Active drafts are read from memory 
 
 ## Custom Rooms
 
-Custom mode adds room-only settings for larger hero pools, max lobby players, duplicate picks, team order, timers, flexible slots, and custom bans.
+Custom mode adds room-only settings for larger hero pools, max lobby players, duplicate picks, team order, timers, flexible slots, blind draft, full random draft, and custom bans.
+It can use `Free Pick`, `Classic`, or `Random Hero` as the base draft type for that room.
 
 
 ## Room Chat
