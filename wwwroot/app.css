@@ -1047,7 +1047,35 @@ h3 {
 .custom-settings-header {
     display: flex;
     justify-content: space-between;
+    align-items: flex-start;
     gap: 1rem;
+}
+
+.preset-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: .45rem;
+}
+
+.preset-upload {
+    position: relative;
+    overflow: hidden;
+    min-height: 2.2rem;
+    padding: .6rem .75rem;
+    border: 1px solid rgba(218, 177, 79, .35);
+    border-radius: 6px;
+    background: rgba(218, 177, 79, .08);
+    color: var(--gold);
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.preset-upload input[type="file"] {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
 }
 
 .custom-settings-header span,

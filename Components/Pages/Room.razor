@@ -4,10 +4,12 @@
 @implements IDisposable
 @using abilitydraft.Models
 @using abilitydraft.Services
+@using Microsoft.Extensions.Options
 @inject DraftRoomService RoomService
 @inject DeadPackerService DeadPackerService
 @inject NavigationManager Nav
 @inject IJSRuntime JS
+@inject IOptions<DraftTimingOptions> TimingOptions
 
 <PageTitle>Deadlock Ability Draft Room</PageTitle>
 
@@ -445,6 +447,7 @@ else
     private string GameRootPathInput = string.Empty;
     private IReadOnlyList<string> GameRootMissingItems = [];
     private string CopyMessage = string.Empty;
+    private string PresetMessage = string.Empty;
     private DeadlockTeam SelectedLobbyTeam = DeadlockTeam.HiddenKing;
     private DraftMode LobbyDraftMode = DraftMode.FreePick;
     private bool LobbyAllowDuplicates;
@@ -473,8 +476,10 @@ else
     private int LastHandledSoundEventId;
     private int MessageVersion;
     private int CopyMessageVersion;
+    private int PresetMessageVersion;
     private readonly DateTime SoundListenStartedUtc = DateTime.UtcNow;
     private static readonly TimeSpan TransientMessageDuration = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan PresetMessageDuration = TimeSpan.FromSeconds(30);
     private string ChatText = string.Empty;
     private DraftChatScope ChatScope = DraftChatScope.Allies;
     private readonly HashSet<string> MutedPlayerIds = new(StringComparer.Ordinal);
@@ -739,6 +744,23 @@ else
     };
 
     private RenderFragment LobbyCustomSettingsPanel() => @<section class="custom-settings-panel compact-custom-settings">
+        <div class="custom-settings-header">
+            <div>
+                <strong>Custom draft rules</strong>
+                <span>These settings apply only to this room.</span>
+            </div>
+            <div class="preset-actions">
+                <button type="button" @onclick="GenerateLobbyPreset">Generate preset</button>
+                <label class="preset-upload">
+                    Load preset
+                    <InputFile OnChange="LoadLobbyPreset" accept="application/json,.json" />
+                </label>
+            </div>
+        </div>
+        @if (!string.IsNullOrWhiteSpace(PresetMessage))
+        {
+            <p class="inline-message">@PresetMessage</p>
+        }
         <div class="custom-settings-grid">
             <label>
                 <span>Base draft type</span>
@@ -1585,6 +1607,61 @@ else
 
     private void SaveLobbySettings() => Try(() => RoomService.UpdateRoomConfig(Code, PlayerId ?? string.Empty, BuildLobbyConfig()));
 
+    private async Task GenerateLobbyPreset()
+    {
+        if (!IsHost || LobbyDraftMode != DraftMode.Custom || CurrentRoom?.Status != DraftRoomStatus.Lobby)
+        {
+            return;
+        }
+
+        try
+        {
+            var json = CustomDraftPresetService.Export(BuildLobbyConfig());
+            await JS.InvokeVoidAsync("deadlockAbilityDraft.downloadTextFile", "custom-draft-preset.json", json, "application/json");
+            SetPresetMessage("Preset generated.");
+        }
+        catch (Exception ex)
+        {
+            SetPresetMessage(ex.Message);
+        }
+    }
+
+    private async Task LoadLobbyPreset(InputFileChangeEventArgs args)
+    {
+        if (!IsHost || CurrentRoom is null)
+        {
+            return;
+        }
+
+        if (CurrentRoom.Status != DraftRoomStatus.Lobby)
+        {
+            SetPresetMessage("Presets can only be loaded before the draft starts.");
+            return;
+        }
+
+        try
+        {
+            await using var stream = args.File.OpenReadStream(128 * 1024);
+            using var reader = new StreamReader(stream);
+            var json = await reader.ReadToEndAsync();
+            var result = CustomDraftPresetService.Import(json, CurrentRoom.DeadlockData, CurrentRoom.Bans, TimingOptions.Value);
+            RoomService.UpdateRoomConfig(Code, PlayerId ?? string.Empty, result.Config);
+            CurrentRoom = RoomService.GetRoom(Code);
+            SyncLobbyFields();
+            SetPresetMessage(result.Warnings.Count == 0
+                ? "Preset loaded."
+                : $"Preset loaded. {string.Join(" ", result.Warnings)}");
+        }
+        catch (InvalidDataException ex)
+        {
+            SetPresetMessage(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            SetPresetMessage(ex.Message);
+        }
+    }
+
     private DraftRoomConfig BuildLobbyConfig()
     {
         var config = new DraftRoomConfig
@@ -1710,6 +1787,12 @@ else
         _ = ClearCopyMessageAfterDelay(++CopyMessageVersion);
     }
 
+    private void SetPresetMessage(string value)
+    {
+        PresetMessage = value;
+        _ = ClearPresetMessageAfterDelay(++PresetMessageVersion);
+    }
+
     private async Task ClearMessageAfterDelay(int version)
     {
         try
@@ -1739,6 +1822,24 @@ else
             }
 
             CopyMessage = string.Empty;
+            await InvokeAsync(StateHasChanged);
+        }
+        catch
+        {
+        }
+    }
+
+    private async Task ClearPresetMessageAfterDelay(int version)
+    {
+        try
+        {
+            await Task.Delay(PresetMessageDuration);
+            if (version != PresetMessageVersion)
+            {
+                return;
+            }
+
+            PresetMessage = string.Empty;
             await InvokeAsync(StateHasChanged);
         }
         catch

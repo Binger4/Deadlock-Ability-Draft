@@ -7,6 +7,7 @@
 @inject ServerDeadlockDataService DataService
 @inject NavigationManager Nav
 @inject IOptions<DraftTimingOptions> TimingOptions
+@inject IJSRuntime JS
 
 <PageTitle>Create Draft Room</PageTitle>
 
@@ -105,6 +106,9 @@
     private readonly HashSet<string> CustomBannedAbilities = new(StringComparer.Ordinal);
     private readonly HashSet<string> CustomUnbannedAbilities = new(StringComparer.Ordinal);
     private string Message = string.Empty;
+    private string PresetMessage = string.Empty;
+    private int PresetMessageVersion;
+    private static readonly TimeSpan PresetMessageDuration = TimeSpan.FromSeconds(30);
     private DeadlockDataSnapshot Snapshot => DataService.Current;
     private int BannedAbilityCount => Snapshot.Data is null
         ? Snapshot.Bans.BannedAbilities.Count
@@ -179,7 +183,18 @@
                     <strong>Custom draft rules</strong>
                     <span>These settings apply only to this room.</span>
                 </div>
+                <div class="preset-actions">
+                    <button type="button" @onclick="GeneratePreset">Generate preset</button>
+                    <label class="preset-upload">
+                        Load preset
+                        <InputFile OnChange="LoadPreset" accept="application/json,.json" />
+                    </label>
+                </div>
             </div>
+            @if (!string.IsNullOrWhiteSpace(PresetMessage))
+            {
+                <p class="inline-message">@PresetMessage</p>
+            }
 
             <div class="custom-settings-grid">
                 <label>
@@ -332,6 +347,103 @@
         {
             set.Remove(key);
         }
+    }
+
+    private async Task GeneratePreset()
+    {
+        try
+        {
+            var json = CustomDraftPresetService.Export(BuildDraftConfig());
+            await JS.InvokeVoidAsync("deadlockAbilityDraft.downloadTextFile", "custom-draft-preset.json", json, "application/json");
+            SetPresetMessage("Preset generated.");
+        }
+        catch (Exception ex)
+        {
+            SetPresetMessage(ex.Message);
+        }
+    }
+
+    private async Task LoadPreset(InputFileChangeEventArgs args)
+    {
+        if (Snapshot.Data is null)
+        {
+            SetPresetMessage("Server data is not loaded.");
+            return;
+        }
+
+        try
+        {
+            await using var stream = args.File.OpenReadStream(128 * 1024);
+            using var reader = new StreamReader(stream);
+            var json = await reader.ReadToEndAsync();
+            var result = CustomDraftPresetService.Import(json, Snapshot.Data, Snapshot.Bans, TimingOptions.Value);
+            ApplyPresetConfig(result.Config);
+            SetPresetMessage(result.Warnings.Count == 0
+                ? "Preset loaded."
+                : $"Preset loaded. {string.Join(" ", result.Warnings)}");
+        }
+        catch (InvalidDataException ex)
+        {
+            SetPresetMessage(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            SetPresetMessage(ex.Message);
+        }
+    }
+
+    private void SetPresetMessage(string value)
+    {
+        PresetMessage = value;
+        _ = ClearPresetMessageAfterDelay(++PresetMessageVersion);
+    }
+
+    private async Task ClearPresetMessageAfterDelay(int version)
+    {
+        try
+        {
+            await Task.Delay(PresetMessageDuration);
+            if (version != PresetMessageVersion)
+            {
+                return;
+            }
+
+            PresetMessage = string.Empty;
+            await InvokeAsync(StateHasChanged);
+        }
+        catch
+        {
+        }
+    }
+
+    private void ApplyPresetConfig(DraftRoomConfig config)
+    {
+        SelectedDraftMode = DraftMode.Custom;
+        CustomBaseDraftMode = config.CustomBaseDraftMode;
+        CustomHeroPoolSize = config.HeroPoolSize;
+        CustomMaxPlayers = config.MaxPlayers;
+        CustomPickOrder = config.PickOrder;
+        CustomAutoPickBehavior = config.AutoPickBehavior;
+        CustomTeamBalance = config.TeamBalance;
+        CustomPreparationSeconds = config.PreparationSeconds;
+        CustomPickSeconds = config.PickSeconds;
+        CustomAllowDuplicateHeroes = config.AllowDuplicateHeroes;
+        CustomAllowDuplicateAbilities = config.AllowDuplicateAbilities;
+        CustomFlexibleUltimates = config.FlexibleUltimateSlots;
+        CustomBlindDraft = config.BlindDraft;
+        CustomFullRandom = config.FullRandom;
+        AllowHostOverride = config.AllowHostOverridePicks;
+        DisableChat = config.DisableChat;
+        AllowBots = config.AllowEmptySlotsAsBots;
+        CustomBannedHeroes.Clear();
+        CustomUnbannedHeroes.Clear();
+        CustomBannedAbilities.Clear();
+        CustomUnbannedAbilities.Clear();
+        CustomBannedHeroes.UnionWith(config.CustomBans.BannedHeroes);
+        CustomUnbannedHeroes.UnionWith(config.CustomBans.UnbannedHeroes);
+        CustomBannedAbilities.UnionWith(config.CustomBans.BannedAbilities);
+        CustomUnbannedAbilities.UnionWith(config.CustomBans.UnbannedAbilities);
+        ClampCustomPlayerLimits();
     }
 
     private void ClampCustomPlayerLimits()

@@ -54,6 +54,21 @@ window.deadlockAbilityDraft.copyText = async (text) => {
     }
 };
 
+window.deadlockAbilityDraft.downloadTextFile = (fileName, content, mimeType) => {
+    try {
+        const blob = new Blob([content || ""], { type: mimeType || "application/json" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = fileName || "custom-draft-preset.json";
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    } catch {
+    }
+};
+
 window.deadlockAbilityDraft.scrollToBottom = (element) => {
     try {
         if (element) {
