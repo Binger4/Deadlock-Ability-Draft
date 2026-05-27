@@ -50,23 +50,6 @@ public sealed class DraftStatsService(
         }
     }
 
-    public bool ClearCompletedDrafts()
-    {
-        lock (_lock)
-        {
-            try
-            {
-                SaveCompletedDrafts([]);
-                return true;
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Failed to clear completed draft statistics history.");
-                return false;
-            }
-        }
-    }
-
     private List<CompletedDraftStatsRecord> LoadCompletedDrafts()
     {
         var path = CompletedDraftsPath();

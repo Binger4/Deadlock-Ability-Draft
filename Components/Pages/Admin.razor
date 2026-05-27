@@ -165,21 +165,6 @@
                 {
                     <p class="message">Completed draft history saving is disabled in <code>appsettings.json</code>.</p>
                 }
-                <div class="stats-actions">
-                    @if (ShowClearStatsConfirmation)
-                    {
-                        <div class="confirm-box inline-confirm">
-                            <strong>Clear completed draft history?</strong>
-                            <span>This only clears <code>Data/Stats/completed-drafts.json</code>.</span>
-                            <button class="danger-action" @onclick="ConfirmClearCompletedStats">Clear all</button>
-                            <button class="success-action" @onclick="CancelClearCompletedStats">Cancel</button>
-                        </div>
-                    }
-                    else
-                    {
-                        <button class="danger-action" @onclick="RequestClearCompletedStats" disabled="@(CompletedDraftStats.Count == 0)">Clear all</button>
-                    }
-                </div>
                 @if (CompletedDraftStats.Count == 0)
                 {
                     <p class="message">No completed draft history yet.</p>
@@ -495,7 +480,6 @@
     private Dictionary<string, string> HeroOverrides = new(StringComparer.Ordinal);
     private Dictionary<string, string> AbilityOverrides = new(StringComparer.Ordinal);
     private string GameRootPathInput = string.Empty;
-    private bool ShowClearStatsConfirmation;
     private HashSet<string> ExpandedActiveDrafts = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string> ExpandedCompletedDrafts = new(StringComparer.OrdinalIgnoreCase);
     private IReadOnlyList<CompletedDraftStatsRecord> CompletedDraftStats = [];
@@ -546,16 +530,6 @@
         Message = $"Packing tool status written to {path}";
     }
 
-    private void RequestClearCompletedStats()
-    {
-        ShowClearStatsConfirmation = true;
-    }
-
-    private void CancelClearCompletedStats()
-    {
-        ShowClearStatsConfirmation = false;
-    }
-
     private void ToggleActiveDraft(string draftCode)
     {
         if (!ExpandedActiveDrafts.Add(draftCode))
@@ -575,19 +549,6 @@
     private void RefreshDraftStats()
     {
         LoadCompletedStats();
-    }
-
-    private void ConfirmClearCompletedStats()
-    {
-        ShowClearStatsConfirmation = false;
-        if (DraftStatsService.ClearCompletedDrafts())
-        {
-            LoadCompletedStats();
-            Message = "Completed draft statistics history cleared.";
-            return;
-        }
-
-        Message = "Could not clear completed draft statistics history. Check server logs.";
     }
 
     private void LoadCompletedStats()

@@ -761,25 +761,6 @@ h3 {
     font-style: italic;
 }
 
-.stats-actions {
-    margin-top: .75rem;
-}
-
-.success-action {
-    border-color: rgba(54, 216, 93, .45);
-    background: rgba(24, 90, 34, .42);
-    color: var(--green);
-}
-
-.success-action:hover {
-    border-color: var(--green);
-}
-
-.inline-confirm {
-    margin-top: 0;
-    width: fit-content;
-}
-
 .admin-editor {
     margin: 1rem auto;
     border: 1px solid var(--line);
