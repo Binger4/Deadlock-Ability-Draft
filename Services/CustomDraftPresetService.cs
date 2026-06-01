@@ -32,7 +32,6 @@ public static class CustomDraftPresetService
                 TeamBalance = config.TeamBalance,
                 PreparationTimeSeconds = config.PreparationSeconds,
                 PickTimerSeconds = config.PickSeconds,
-                AllowDuplicateHeroes = config.AllowDuplicateHeroes,
                 AllowDuplicateAbilities = config.AllowDuplicateAbilities,
                 FlexibleUltimateSlots = config.FlexibleUltimateSlots,
                 AllowHostOverride = config.AllowHostOverridePicks,
@@ -59,9 +58,12 @@ public static class CustomDraftPresetService
         DraftTimingOptions timing)
     {
         CustomDraftPreset? preset;
+        var hasIgnoredFields = false;
         try
         {
-            preset = JsonSerializer.Deserialize<CustomDraftPreset>(json, JsonOptions);
+            using var document = JsonDocument.Parse(json);
+            hasIgnoredFields = HasUnsupportedPresetFields(document.RootElement);
+            preset = document.RootElement.Deserialize<CustomDraftPreset>(JsonOptions);
         }
         catch (JsonException)
         {
@@ -94,6 +96,11 @@ public static class CustomDraftPresetService
         }
 
         var warnings = new List<string>();
+        if (hasIgnoredFields)
+        {
+            warnings.Add("Some preset fields were ignored because they are no longer supported.");
+        }
+
         var bans = FilterBans(preset.Bans, data, warnings);
         var maxHeroes = Math.Max(1, data.Heroes.Count);
         var defaultPreparation = PositiveOrDefault(timing.PreparationSeconds, 30);
@@ -115,7 +122,6 @@ public static class CustomDraftPresetService
             TeamBalance = preset.Settings.TeamBalance ?? DraftTeamBalance.AllowUnevenTeams,
             PreparationSeconds = preparationSeconds,
             PickSeconds = pickSeconds,
-            AllowDuplicateHeroes = preset.Settings.AllowDuplicateHeroes ?? false,
             AllowDuplicateAbilities = preset.Settings.AllowDuplicateAbilities ?? false,
             FlexibleUltimateSlots = preset.Settings.FlexibleUltimateSlots ?? false,
             AllowHostOverridePicks = preset.Settings.AllowHostOverride ?? false,
@@ -186,6 +192,82 @@ public static class CustomDraftPresetService
 
         return bans;
     }
+
+    private static bool HasUnsupportedPresetFields(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object)
+        {
+            return false;
+        }
+
+        var found = HasUnsupportedProperties(root, SupportedRootFields);
+        if (TryGetObjectProperty(root, "settings", out var settings))
+        {
+            found |= HasUnsupportedProperties(settings, SupportedSettingsFields);
+        }
+
+        if (TryGetObjectProperty(root, "bans", out var bans))
+        {
+            found |= HasUnsupportedProperties(bans, SupportedBanFields);
+        }
+
+        return found;
+    }
+
+    private static bool HasUnsupportedProperties(JsonElement element, HashSet<string> supportedFields) =>
+        element.EnumerateObject().Any(property => !supportedFields.Contains(property.Name));
+
+    private static bool TryGetObjectProperty(JsonElement element, string propertyName, out JsonElement value)
+    {
+        foreach (var property in element.EnumerateObject())
+        {
+            if (property.NameEquals(propertyName) ||
+                property.Name.Equals(propertyName, StringComparison.OrdinalIgnoreCase))
+            {
+                value = property.Value;
+                return value.ValueKind == JsonValueKind.Object;
+            }
+        }
+
+        value = default;
+        return false;
+    }
+
+    private static readonly HashSet<string> SupportedRootFields = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "version",
+        "mode",
+        "settings",
+        "bans",
+        "createdAtUtc"
+    };
+
+    private static readonly HashSet<string> SupportedSettingsFields = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "baseDraftType",
+        "fullRandom",
+        "blindDraft",
+        "heroPoolSize",
+        "maxPlayers",
+        "pickOrder",
+        "autoPickBehavior",
+        "teamBalance",
+        "preparationTimeSeconds",
+        "pickTimerSeconds",
+        "allowDuplicateAbilities",
+        "flexibleUltimateSlots",
+        "allowHostOverride",
+        "disableChat",
+        "allowEmptySlotsAsBots"
+    };
+
+    private static readonly HashSet<string> SupportedBanFields = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "heroes",
+        "unbannedHeroes",
+        "abilities",
+        "unbannedAbilities"
+    };
 
     private static void AddExisting(IEnumerable<string>? keys, HashSet<string> validKeys, HashSet<string> target, ref bool foundMissing)
     {
@@ -283,7 +365,6 @@ public sealed class CustomDraftPresetSettings
     public DraftTeamBalance? TeamBalance { get; set; }
     public int? PreparationTimeSeconds { get; set; }
     public int? PickTimerSeconds { get; set; }
-    public bool? AllowDuplicateHeroes { get; set; }
     public bool? AllowDuplicateAbilities { get; set; }
     public bool? FlexibleUltimateSlots { get; set; }
     public bool? AllowHostOverride { get; set; }

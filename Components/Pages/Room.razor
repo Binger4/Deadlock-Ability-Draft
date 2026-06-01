@@ -110,7 +110,6 @@ else
                         <p>Max players: <strong>@CurrentRoom.Config.MaxPlayers</strong></p>
                         <p>Hero pool: <strong>@CurrentRoom.Config.HeroPoolSize</strong></p>
                         <p>Ability duplicates: <strong>@(CurrentRoom.Config.AllowDuplicateAbilities ? "Allowed" : "Blocked")</strong></p>
-                        <p>Hero duplicates: <strong>@(CurrentRoom.Config.AllowDuplicateHeroes ? "Allowed" : "Blocked")</strong></p>
                         <p>Pick order: <strong>@PickOrderLabel(CurrentRoom.Config.PickOrder)</strong></p>
                         <p>Timers: <strong>@CurrentRoom.Config.PreparationSeconds/@CurrentRoom.Config.PickSeconds sec</strong></p>
                         <p>Slots: <strong>@(CurrentRoom.Config.FlexibleUltimateSlots ? "Flexible" : "Standard")</strong></p>
@@ -456,7 +455,6 @@ else
     private bool LobbyDisableChat;
     private int LobbyHeroPoolSize = 12;
     private int LobbyMaxPlayers = 12;
-    private bool LobbyAllowDuplicateHeroes;
     private bool LobbyFlexibleUltimates;
     private bool LobbyBlindDraft;
     private bool LobbyFullRandom;
@@ -665,7 +663,6 @@ else
         LobbyDisableChat = CurrentRoom.Config.DisableChat;
         LobbyHeroPoolSize = CurrentRoom.Config.HeroPoolSize;
         LobbyMaxPlayers = CurrentRoom.Config.MaxPlayers;
-        LobbyAllowDuplicateHeroes = CurrentRoom.Config.AllowDuplicateHeroes;
         LobbyFlexibleUltimates = CurrentRoom.Config.FlexibleUltimateSlots;
         LobbyBlindDraft = CurrentRoom.Config.BlindDraft;
         LobbyFullRandom = CurrentRoom.Config.FullRandom;
@@ -800,7 +797,6 @@ else
             <label><span>Pick timer</span><input type="number" min="1" @bind="LobbyPickSeconds" /></label>
         </div>
         <div class="custom-toggle-grid">
-            <label class="toggle"><input type="checkbox" @bind="LobbyAllowDuplicateHeroes" /><span>Allow duplicate heroes</span></label>
             <label class="toggle"><input type="checkbox" @bind="LobbyAllowDuplicates" /><span>Allow duplicate abilities</span></label>
             <label class="toggle"><input type="checkbox" @bind="LobbyFlexibleUltimates" /><span>Flexible ultimate slots</span></label>
             <label class="toggle"><input type="checkbox" @bind="LobbyBlindDraft" /><span>Blind draft</span></label>
@@ -1181,6 +1177,7 @@ else
     private RenderFragment AbilityTile(AbilityDefinition ability, DraftAbilityPoolItem? poolItem, bool hideIdentity = false) => builder =>
     {
         var picked = CurrentRoom?.PickedAbilityKeys.Contains(ability.Key) == true;
+        var showPickedAsTaken = picked && CurrentRoom?.Config.AllowDuplicateAbilities != true;
         var canPick = CurrentRoom is not null && RoomService.CanPlayerPickKey(CurrentRoom, PlayerId, ability.Key);
         var displayName = hideIdentity ? "Hidden ability" : ability.DisplayName;
         var icon = hideIdentity ? "/icons/hidden-icon.png" : ability.IconDataUrl;
@@ -1191,7 +1188,7 @@ else
                 : $"{ability.DisplayName} | {ability.Key} | {ability.SourceHeroName} {ability.SourceSlot}";
         var sequence = 0;
         builder.OpenElement(sequence++, "button");
-        builder.AddAttribute(sequence++, "class", $"ability-tile grouped{(picked ? " picked" : string.Empty)}{(poolItem?.IsReplacement == true ? " replacement" : string.Empty)}{(ability.PickKind == DraftPickKind.UltimateAbility ? " ultimate" : string.Empty)}{(hideIdentity ? " blind-hidden" : string.Empty)}");
+        builder.AddAttribute(sequence++, "class", $"ability-tile grouped{(showPickedAsTaken ? " picked" : string.Empty)}{(poolItem?.IsReplacement == true ? " replacement" : string.Empty)}{(ability.PickKind == DraftPickKind.UltimateAbility ? " ultimate" : string.Empty)}{(hideIdentity ? " blind-hidden" : string.Empty)}");
         builder.AddAttribute(sequence++, "disabled", !canPick);
         builder.AddAttribute(sequence++, "title", title);
         builder.AddAttribute(sequence++, "onclick", EventCallback.Factory.Create(this, () => Pick(ability.Key)));
@@ -1211,7 +1208,7 @@ else
             builder.AddContent(sequence++, Initials(displayName));
             builder.CloseElement();
         }
-        if (picked)
+        if (showPickedAsTaken)
         {
             builder.OpenElement(sequence++, "span");
             builder.AddAttribute(sequence++, "class", "picked-cross");
@@ -1674,7 +1671,6 @@ else
             DisableChat = LobbyDisableChat,
             MaxPlayers = Math.Clamp(LobbyMaxPlayers, 1, MaxLobbyPlayers),
             HeroPoolSize = LobbyHeroPoolSize,
-            AllowDuplicateHeroes = LobbyDraftMode == DraftMode.Custom && LobbyAllowDuplicateHeroes,
             FlexibleUltimateSlots = LobbyDraftMode == DraftMode.Custom && LobbyFlexibleUltimates,
             BlindDraft = LobbyDraftMode == DraftMode.Custom && LobbyBlindDraft,
             FullRandom = LobbyDraftMode == DraftMode.Custom && LobbyFullRandom,

@@ -89,7 +89,6 @@
     private bool DisableChat;
     private int CustomHeroPoolSize = 12;
     private int CustomMaxPlayers = 12;
-    private bool CustomAllowDuplicateHeroes;
     private bool CustomAllowDuplicateAbilities;
     private bool CustomFlexibleUltimates;
     private bool CustomBlindDraft;
@@ -150,7 +149,6 @@
             DisableChat = DisableChat,
             MaxPlayers = Math.Clamp(CustomMaxPlayers, 1, MaxCustomPlayers),
             HeroPoolSize = CustomHeroPoolSize,
-            AllowDuplicateHeroes = SelectedDraftMode == DraftMode.Custom && CustomAllowDuplicateHeroes,
             AllowDuplicateAbilities = SelectedDraftMode == DraftMode.Custom && CustomAllowDuplicateAbilities,
             FlexibleUltimateSlots = SelectedDraftMode == DraftMode.Custom && CustomFlexibleUltimates,
             BlindDraft = SelectedDraftMode == DraftMode.Custom && CustomBlindDraft,
@@ -248,7 +246,6 @@
             </div>
 
             <div class="custom-toggle-grid">
-                <label class="toggle"><input type="checkbox" @bind="CustomAllowDuplicateHeroes" /><span>Allow duplicate heroes</span></label>
                 <label class="toggle"><input type="checkbox" @bind="CustomAllowDuplicateAbilities" /><span>Allow duplicate abilities</span></label>
                 <label class="toggle"><input type="checkbox" @bind="CustomFlexibleUltimates" /><span>Flexible ultimate slots</span></label>
                 <label class="toggle"><input type="checkbox" @bind="CustomBlindDraft" /><span>Blind draft</span></label>
@@ -427,7 +424,6 @@
         CustomTeamBalance = config.TeamBalance;
         CustomPreparationSeconds = config.PreparationSeconds;
         CustomPickSeconds = config.PickSeconds;
-        CustomAllowDuplicateHeroes = config.AllowDuplicateHeroes;
         CustomAllowDuplicateAbilities = config.AllowDuplicateAbilities;
         CustomFlexibleUltimates = config.FlexibleUltimateSlots;
         CustomBlindDraft = config.BlindDraft;

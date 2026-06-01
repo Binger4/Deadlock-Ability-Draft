@@ -431,16 +431,13 @@ public sealed class AbilityAssignmentService
             }
         }
 
-        if (!room.Config.AllowDuplicateHeroes)
+        foreach (var duplicate in DraftTurnService.ActiveSlots(room)
+                     .Select(player => player.HeroKey ?? string.Empty)
+                     .Where(key => !string.IsNullOrWhiteSpace(key))
+                     .GroupBy(key => key, StringComparer.Ordinal)
+                     .Where(group => group.Count() > 1))
         {
-            foreach (var duplicate in DraftTurnService.ActiveSlots(room)
-                         .Select(player => player.HeroKey ?? string.Empty)
-                         .Where(key => !string.IsNullOrWhiteSpace(key))
-                         .GroupBy(key => key, StringComparer.Ordinal)
-                         .Where(group => group.Count() > 1))
-            {
-                messages.Add($"Duplicate hero '{duplicate.Key}' is picked {duplicate.Count()} times.");
-            }
+            messages.Add($"Duplicate hero '{duplicate.Key}' is picked {duplicate.Count()} times.");
         }
 
         if (!room.Config.AllowDuplicateAbilities)
@@ -1162,7 +1159,7 @@ public sealed class DraftRoomService(
                 throw new InvalidOperationException("Hero is not in this room's draft pool.");
             }
 
-            if (!room.Config.AllowDuplicateHeroes && room.PickedHeroKeys.Contains(pickedKey))
+            if (room.PickedHeroKeys.Contains(pickedKey))
             {
                 throw new InvalidOperationException("Hero has already been picked.");
             }
@@ -1452,9 +1449,9 @@ public sealed class DraftRoomService(
             throw new InvalidOperationException("Full Random needs at least one valid hero in the draft pool.");
         }
 
-        if (!room.Config.AllowDuplicateHeroes && room.DraftHeroPoolKeys.Count < activePlayerCount)
+        if (room.DraftHeroPoolKeys.Count < activePlayerCount)
         {
-            throw new InvalidOperationException($"Full Random needs at least {activePlayerCount} unique heroes or duplicate heroes enabled.");
+            throw new InvalidOperationException($"Full Random needs at least {activePlayerCount} unique heroes.");
         }
 
         var poolAbilities = DraftPoolAbilities(room).ToList();
@@ -1499,7 +1496,7 @@ public sealed class DraftRoomService(
 
         foreach (var slot in DraftTurnService.ActiveSlots(room).OrderBy(_ => RandomNumberGenerator.GetInt32(int.MaxValue)))
         {
-            var heroKey = SelectRandomKey(heroKeys, room.PickedHeroKeys, new HashSet<string>(StringComparer.Ordinal), room.Config.AllowDuplicateHeroes, "hero");
+            var heroKey = SelectRandomKey(heroKeys, room.PickedHeroKeys, new HashSet<string>(StringComparer.Ordinal), allowGlobalDuplicates: false, "hero");
             var hero = room.DeadlockData.Heroes.First(item => item.Key == heroKey);
             abilityAssignmentService.ApplyHeroPick(room, slot, hero);
             room.PickHistory.Add(new DraftPickRecord(slot.SlotNumber, DraftPickKind.Hero, heroKey, DateTime.UtcNow));
@@ -1772,9 +1769,9 @@ public sealed class DraftRoomService(
         }
 
         var activePlayerCount = room.Config.AllowEmptySlotsAsBots ? room.Config.MaxPlayers : room.Clients.Count;
-        if (!room.Config.AllowDuplicateHeroes && room.Config.HeroPoolSize < activePlayerCount)
+        if (room.Config.HeroPoolSize < activePlayerCount)
         {
-            throw new InvalidOperationException("Hero pool size must be at least active player count unless duplicate heroes are allowed.");
+            throw new InvalidOperationException("Hero pool size must be at least active player count.");
         }
     }
 
@@ -2234,7 +2231,6 @@ public sealed class DraftRoomService(
         {
             target.CustomBaseDraftMode = DraftMode.FreePick;
             target.AllowDuplicateAbilities = false;
-            target.AllowDuplicateHeroes = false;
             target.FlexibleUltimateSlots = false;
             target.BlindDraft = false;
             target.FullRandom = false;
@@ -2262,7 +2258,6 @@ public sealed class DraftRoomService(
         target.HeroPoolSize = Math.Clamp(source.HeroPoolSize <= 0 ? 12 : source.HeroPoolSize, 1, Math.Max(1, data.Heroes.Count));
         target.MaxPlayers = Math.Clamp(source.MaxPlayers <= 0 ? target.HeroPoolSize : source.MaxPlayers, 1, target.HeroPoolSize);
         target.AllowDuplicateAbilities = source.AllowDuplicateAbilities;
-        target.AllowDuplicateHeroes = source.AllowDuplicateHeroes;
         target.FlexibleUltimateSlots = source.FlexibleUltimateSlots;
         target.BlindDraft = source.BlindDraft;
         target.FullRandom = source.FullRandom;

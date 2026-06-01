@@ -221,7 +221,6 @@ public sealed class DraftRoomConfig
     public DraftMode DraftMode { get; set; } = DraftMode.FreePick;
     public DraftMode CustomBaseDraftMode { get; set; } = DraftMode.FreePick;
     public bool AllowDuplicateAbilities { get; set; }
-    public bool AllowDuplicateHeroes { get; set; }
     public bool AllowEmptySlotsAsBots { get; set; }
     public bool AllowHostOverridePicks { get; set; }
     public bool FlexibleUltimateSlots { get; set; }
