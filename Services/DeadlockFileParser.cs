@@ -24,6 +24,7 @@ public sealed partial class DeadlockFileParser(LocalisationDiscoveryService loca
         var abilities = ParseAbilities(abilitiesDocument, heroes, abilityNames);
         var warnings = files.Warnings.ToList();
         ApplyIcons(files.IconFiles, heroes, abilities);
+        ApplyMiniHeroIcons(files.MiniHeroIconFiles, heroes);
 
         if (heroes.Count < 12)
         {
@@ -223,6 +224,25 @@ public sealed partial class DeadlockFileParser(LocalisationDiscoveryService loca
         foreach (var ability in abilities)
         {
             ability.IconDataUrl = FindIcon(normalizedIcons, ability.Key, ability.DisplayName);
+        }
+    }
+
+    private static void ApplyMiniHeroIcons(
+        IReadOnlyDictionary<string, string> iconFiles,
+        IEnumerable<HeroDefinition> heroes)
+    {
+        if (iconFiles.Count == 0)
+        {
+            return;
+        }
+
+        var normalizedIcons = iconFiles
+            .GroupBy(file => NormalizeIconKey(file.Key), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First().Value, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var hero in heroes)
+        {
+            hero.MiniIconDataUrl = FindIcon(normalizedIcons, hero.Key, hero.DisplayName);
         }
     }
 

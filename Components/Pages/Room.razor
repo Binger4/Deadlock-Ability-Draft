@@ -196,10 +196,17 @@ else
                     var player = CurrentRoom.Players.FirstOrDefault(item => item.SlotNumber == turn.SlotNumber);
                     if (player is not null)
                     {
+                        var miniHeroIcon = MiniHeroIconForSlot(player);
                         <div class="track-step @(isCurrent ? "current" : "")">
                             <span>@player.TeamIndex()</span>
-                            <small>@PickKindShort(turn.PickKind)</small>
-                            <strong>@Initials(player.NameOrFallback)</strong>
+                            @if (!string.IsNullOrWhiteSpace(miniHeroIcon))
+                            {
+                                <img class="track-hero-mini" src="@miniHeroIcon" alt="@HeroName(player.HeroKey)" />
+                            }
+                            else
+                            {
+                                <small class="track-initial">@Initials(player.NameOrFallback)</small>
+                            }
                         </div>
                     }
                 }
@@ -453,7 +460,7 @@ else
     private bool LobbyAllowBots;
     private bool LobbyAllowOverride;
     private bool LobbyDisableChat;
-    private int LobbyHeroPoolSize = 12;
+    private int LobbyHeroPoolSize = 18;
     private int LobbyMaxPlayers = 12;
     private bool LobbyFlexibleUltimates;
     private bool LobbyBlindDraft;
@@ -1237,8 +1244,13 @@ else
             <div class="chat-log" @ref="ChatLogElement">
                 @foreach (var message in VisibleChatMessages())
                 {
+                    var chatHeroIcon = MiniHeroIconForPlayer(message.SenderPlayerId);
                     <p class="chat-message @(message.IsQuick ? "quick-chat" : string.Empty)">
                         <span class="chat-scope">[@ChatScopeLabel(message.Scope)]</span>
+                        @if (!string.IsNullOrWhiteSpace(chatHeroIcon))
+                        {
+                            <img class="chat-hero-mini" src="@chatHeroIcon" alt="" aria-hidden="true" />
+                        }
                         <button class="chat-name @TeamTextClass(message.SenderTeam)"
                                 title="Right click to mute"
                                 @oncontextmenu="args => OpenPlayerMenu(args, message.SenderPlayerId, message.SenderName)"
@@ -1291,6 +1303,28 @@ else
             .Where(message => message.Scope == DraftChatScope.All ||
                               (CurrentClient is not null && message.SenderTeam == CurrentClient.Team))
             .TakeLast(80);
+    }
+
+    private string? MiniHeroIconForPlayer(string? playerId)
+    {
+        if (CurrentRoom is null || string.IsNullOrWhiteSpace(playerId))
+        {
+            return null;
+        }
+
+        var slot = CurrentRoom.Players.FirstOrDefault(player => string.Equals(player.PlayerId, playerId, StringComparison.Ordinal));
+        return MiniHeroIconForSlot(slot);
+    }
+
+    private string? MiniHeroIconForSlot(DraftPlayerSlot? player)
+    {
+        if (CurrentRoom is null || string.IsNullOrWhiteSpace(player?.HeroKey))
+        {
+            return null;
+        }
+
+        var hero = CurrentRoom.DeadlockData.Heroes.FirstOrDefault(item => string.Equals(item.Key, player.HeroKey, StringComparison.Ordinal));
+        return hero?.MiniIconDataUrl ?? hero?.IconDataUrl;
     }
 
     private static string ChatScopeLabel(DraftChatScope scope) =>
@@ -1874,16 +1908,6 @@ else
         DraftPickKind.AnyAbility => "Abilities pick",
         DraftPickKind.Any => "Free pick",
         _ => "Pick"
-    };
-
-    private static string PickKindShort(DraftPickKind kind) => kind switch
-    {
-        DraftPickKind.Hero => "H",
-        DraftPickKind.UltimateAbility => "U",
-        DraftPickKind.RegularAbility => "A",
-        DraftPickKind.AnyAbility => "A",
-        DraftPickKind.Any => "F",
-        _ => "P"
     };
 
     private static string ModeLabel(DraftMode mode) => mode switch

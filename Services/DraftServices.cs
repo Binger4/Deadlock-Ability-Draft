@@ -2235,7 +2235,7 @@ public sealed class DraftRoomService(
             target.BlindDraft = false;
             target.FullRandom = false;
             target.MaxPlayers = 12;
-            target.HeroPoolSize = 12;
+            target.HeroPoolSize = 18;
             target.DisableChat = source.DisableChat;
             target.PreparationSeconds = PositiveOrDefault(timing.PreparationSeconds, 30);
             target.PickSeconds = PositiveOrDefault(timing.PickSeconds, 10);
@@ -2255,8 +2255,8 @@ public sealed class DraftRoomService(
             : DraftMode.FreePick;
         target.PreparationSeconds = PositiveOrDefault(source.PreparationSeconds, timing.PreparationSeconds, 30);
         target.PickSeconds = PositiveOrDefault(source.PickSeconds, timing.PickSeconds, 10);
-        target.HeroPoolSize = Math.Clamp(source.HeroPoolSize <= 0 ? 12 : source.HeroPoolSize, 1, Math.Max(1, data.Heroes.Count));
-        target.MaxPlayers = Math.Clamp(source.MaxPlayers <= 0 ? target.HeroPoolSize : source.MaxPlayers, 1, target.HeroPoolSize);
+        target.HeroPoolSize = Math.Clamp(source.HeroPoolSize <= 0 ? 18 : source.HeroPoolSize, 1, Math.Max(1, data.Heroes.Count));
+        target.MaxPlayers = Math.Clamp(source.MaxPlayers <= 0 ? 12 : source.MaxPlayers, 1, target.HeroPoolSize);
         target.AllowDuplicateAbilities = source.AllowDuplicateAbilities;
         target.FlexibleUltimateSlots = source.FlexibleUltimateSlots;
         target.BlindDraft = source.BlindDraft;

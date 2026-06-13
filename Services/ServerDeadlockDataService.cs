@@ -37,6 +37,7 @@ public sealed class ServerDeadlockDataService(
         Directory.CreateDirectory(iconsPath);
         Directory.CreateDirectory(Path.Combine(iconsPath, "Abilities"));
         Directory.CreateDirectory(Path.Combine(iconsPath, "Heroes"));
+        Directory.CreateDirectory(Path.Combine(iconsPath, "HeroesMini"));
         Directory.CreateDirectory(outputPath);
 
         var heroesPath = FindFirst(gameDataPath, "heroes.vdata");
@@ -65,12 +66,14 @@ public sealed class ServerDeadlockDataService(
                     warnings.Add($"No localisation files found under {gameDataPath}. Internal keys will be used as fallback names.");
                 }
 
-                var icons = LoadIconFiles(iconsPath, warnings);
+                var icons = LoadIconFiles(iconsPath, warnings, "HeroesMini");
+                var miniHeroIcons = LoadIconFiles(Path.Combine(iconsPath, "HeroesMini"), warnings);
                 data = parser.Parse(new UploadedDeadlockFiles(
                     File.ReadAllText(heroesPath, Encoding.UTF8),
                     File.ReadAllText(abilitiesPath, Encoding.UTF8),
                     localisations,
                     icons,
+                    miniHeroIcons,
                     warnings));
                 ApplySiteLocalisationOverrides(data, overrides);
                 warnings.AddRange(data.Warnings);
@@ -307,10 +310,17 @@ public sealed class ServerDeadlockDataService(
             .ToDictionary(path => Path.GetFileName(path) ?? path, path => File.ReadAllText(path, Encoding.UTF8), StringComparer.OrdinalIgnoreCase);
     }
 
-    private static Dictionary<string, string> LoadIconFiles(string iconsPath, List<string> warnings)
+    private static Dictionary<string, string> LoadIconFiles(string iconsPath, List<string> warnings, params string[] excludedDirectoryNames)
     {
         var icons = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var path in Directory.EnumerateFiles(iconsPath, "*.*", SearchOption.AllDirectories).Where(IsSupportedImage))
+        if (!Directory.Exists(iconsPath))
+        {
+            return icons;
+        }
+
+        foreach (var path in Directory.EnumerateFiles(iconsPath, "*.*", SearchOption.AllDirectories)
+                     .Where(path => !IsInExcludedDirectory(path, excludedDirectoryNames))
+                     .Where(IsSupportedImage))
         {
             try
             {
@@ -325,6 +335,19 @@ public sealed class ServerDeadlockDataService(
         }
 
         return icons;
+    }
+
+    private static bool IsInExcludedDirectory(string path, IReadOnlyCollection<string> excludedDirectoryNames)
+    {
+        if (excludedDirectoryNames.Count == 0)
+        {
+            return false;
+        }
+
+        var directories = Path.GetDirectoryName(path)?
+            .Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            .Where(part => !string.IsNullOrWhiteSpace(part)) ?? [];
+        return directories.Any(directory => excludedDirectoryNames.Contains(directory, StringComparer.OrdinalIgnoreCase));
     }
 
     private static string? FindFirst(string root, string fileName)

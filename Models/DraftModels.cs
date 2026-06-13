@@ -61,6 +61,7 @@ public sealed record UploadedDeadlockFiles(
     string AbilitiesVData,
     IReadOnlyDictionary<string, string> LocalisationFiles,
     IReadOnlyDictionary<string, string> IconFiles,
+    IReadOnlyDictionary<string, string> MiniHeroIconFiles,
     IReadOnlyList<string> Warnings);
 
 public sealed class DeadlockDataSnapshot
@@ -129,6 +130,7 @@ public sealed class HeroDefinition
     public string Ability3 { get; set; } = string.Empty;
     public string Ultimate { get; set; } = string.Empty;
     public string? IconDataUrl { get; set; }
+    public string? MiniIconDataUrl { get; set; }
 
     public IEnumerable<string> RegularAbilityKeys()
     {
@@ -230,7 +232,7 @@ public sealed class DraftRoomConfig
     public int PreparationSeconds { get; set; }
     public int PickSeconds { get; set; }
     public int MaxPlayers { get; set; } = 12;
-    public int HeroPoolSize { get; set; } = 12;
+    public int HeroPoolSize { get; set; } = 18;
     public int RequiredHeroCount { get; set; } = 1;
     public int RequiredAbilitySlots { get; set; } = 4;
     public int RegularAbilityPicksPerPlayer { get; set; } = 3;

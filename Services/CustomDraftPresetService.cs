@@ -105,7 +105,7 @@ public static class CustomDraftPresetService
         var maxHeroes = Math.Max(1, data.Heroes.Count);
         var defaultPreparation = PositiveOrDefault(timing.PreparationSeconds, 30);
         var defaultPick = PositiveOrDefault(timing.PickSeconds, 10);
-        var heroPoolSize = ClampPositive(preset.Settings.HeroPoolSize, 12, 1, maxHeroes, "Hero pool size", warnings);
+        var heroPoolSize = ClampPositive(preset.Settings.HeroPoolSize, 18, 1, maxHeroes, "Hero pool size", warnings);
         var maxPlayers = ClampPositive(preset.Settings.MaxPlayers, 12, 1, heroPoolSize, "Max players", warnings);
         var preparationSeconds = PositiveSetting(preset.Settings.PreparationTimeSeconds, defaultPreparation, "Preparation time", warnings);
         var pickSeconds = PositiveSetting(preset.Settings.PickTimerSeconds, defaultPick, "Pick timer", warnings);

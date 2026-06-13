@@ -1187,8 +1187,19 @@ h3 {
     font-size: .7rem;
 }
 
-.track-step strong {
-    font-size: .8rem;
+.track-step .track-initial {
+    font-size: .85rem;
+    font-weight: 800;
+    color: var(--text);
+    line-height: 1;
+}
+
+.track-hero-mini {
+    width: 24px;
+    height: 24px;
+    object-fit: contain;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, .28);
 }
 
 .arena-layout {
@@ -1834,6 +1845,16 @@ h3 {
     color: rgba(211, 173, 85, .8);
     font-weight: 800;
     margin-right: .25rem;
+}
+
+.chat-hero-mini {
+    width: 1.15em;
+    height: 1.15em;
+    object-fit: contain;
+    border-radius: 50%;
+    vertical-align: -0.2em;
+    margin-right: .22rem;
+    background: rgba(0, 0, 0, .24);
 }
 
 .chat-name {
