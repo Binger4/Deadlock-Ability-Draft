@@ -1378,7 +1378,7 @@ public sealed class DraftRoomService(
             }
             else if (room.TimerPhase == DraftTimerPhase.Picking && now >= room.TimerEndsUtc)
             {
-                AutoPick(room);
+                AutoPick(room, announceRandomPick: true);
                 shouldNotify = true;
             }
             else if (room.TimerPhase == DraftTimerPhase.Picking &&
@@ -1561,7 +1561,7 @@ public sealed class DraftRoomService(
     private static int RequiredPoolCount(int activePlayerCount, int picksPerPlayer, bool allowDuplicates) =>
         picksPerPlayer <= 0 ? 0 : allowDuplicates ? picksPerPlayer : activePlayerCount * picksPerPlayer;
 
-    private void AutoPick(DraftRoom room)
+    private void AutoPick(DraftRoom room, bool announceRandomPick = false)
     {
         var turn = room.CurrentTurn;
         if (turn is null)
@@ -1592,6 +1592,11 @@ public sealed class DraftRoomService(
 
         var kind = ResolvePickKind(room, candidate);
         ApplyPick(room, slot, candidate, kind);
+        if (announceRandomPick)
+        {
+            AddRandomPickChatMessage(room, slot, candidate);
+        }
+
         AddSound(room, DraftSoundScope.All, AutoPickSound);
         AdvanceTurn(room);
     }
@@ -2114,14 +2119,48 @@ public sealed class DraftRoomService(
             throw new InvalidOperationException($"Chat messages cannot be longer than {MaxChatMessageLength} characters.");
         }
 
+        AddRoomChatMessage(room, client.PlayerId, client.DisplayName, client.Team, scope, clean, isQuick);
+    }
+
+    private static void AddRandomPickChatMessage(DraftRoom room, DraftPlayerSlot slot, string pickedKey)
+    {
+        if (room.Config.DisableChat)
+        {
+            return;
+        }
+
+        var itemName = QuickChatItemName(room, pickedKey);
+        var clean = CleanChatMessage($"Randomly picks {itemName}");
+        if (string.IsNullOrWhiteSpace(clean))
+        {
+            return;
+        }
+
+        if (clean.Length > MaxChatMessageLength)
+        {
+            clean = clean[..MaxChatMessageLength];
+        }
+
+        AddRoomChatMessage(room, slot.PlayerId ?? string.Empty, slot.NameOrFallback, slot.Team, DraftChatScope.All, clean, isQuick: true);
+    }
+
+    private static void AddRoomChatMessage(
+        DraftRoom room,
+        string senderPlayerId,
+        string senderName,
+        DeadlockTeam senderTeam,
+        DraftChatScope scope,
+        string cleanMessage,
+        bool isQuick)
+    {
         var id = room.ChatMessages.Count == 0 ? 1 : room.ChatMessages[^1].Id + 1;
         room.ChatMessages.Add(new DraftChatMessage(
             id,
-            client.PlayerId,
-            client.DisplayName,
-            client.Team,
+            senderPlayerId,
+            senderName,
+            senderTeam,
             scope,
-            clean,
+            cleanMessage,
             DateTime.UtcNow,
             isQuick));
 
