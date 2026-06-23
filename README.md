@@ -4,7 +4,7 @@
 
 A web-based Ability Draft tool for [Deadlock](https://store.steampowered.com/app/1422450/Deadlock/), inspired by [Dota 2](https://store.steampowered.com/app/570/Dota_2/) [Ability Draft](https://dota2.fandom.com/wiki/Ability_Draft).
 
-![Screenshot](https://i.imgur.com/aq37ylD.png)
+![Screenshot](https://i.imgur.com/90ePgQb.png)
 
 Players create a room, join by code, pick a team, draft heroes and abilities, then export generated Deadlock `.vdata` files and, if packing tools are installed, a ready `.vpk`.
 
