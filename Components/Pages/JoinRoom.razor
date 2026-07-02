@@ -28,6 +28,7 @@
         @if (ReconnectOnly)
         {
             <p class="message">This draft already started. You can only reconnect with the exact same nickname as a disconnected player.</p>
+            <p class="message">You can also join as a spectator.</p>
         }
         else
         {
@@ -39,7 +40,8 @@
                 </select>
             </label>
         }
-        <button class="primary" @onclick="Join">Join room</button>
+        <button class="primary" @onclick="JoinSelected">Join room</button>
+        <button @onclick="JoinAsSpectator">Join as Spectator</button>
         @if (!string.IsNullOrWhiteSpace(Message))
         {
             <p class="message">@Message</p>
@@ -50,6 +52,7 @@
 
 @code {
     [Parameter] public string? InitialCode { get; set; }
+    [SupplyParameterFromQuery(Name = "spectator")] public string? SpectatorQuery { get; set; }
 
     private string RoomCode = string.Empty;
     private string PlayerName = string.Empty;
@@ -64,13 +67,26 @@
         {
             RoomCode = InitialCode;
         }
+
+        if (IsSpectatorQuery())
+        {
+            SelectedTeam = DeadlockTeam.Spectator;
+        }
     }
 
-    private void Join()
+    private void JoinSelected() => Join(SelectedTeam);
+
+    private void JoinAsSpectator() => Join(DeadlockTeam.Spectator);
+
+    private bool IsSpectatorQuery() =>
+        string.Equals(SpectatorQuery, "1", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(SpectatorQuery, "true", StringComparison.OrdinalIgnoreCase);
+
+    private void Join(DeadlockTeam team)
     {
         try
         {
-            var result = RoomService.JoinRoom(RoomCode, PlayerName, SelectedTeam);
+            var result = RoomService.JoinRoom(RoomCode, PlayerName, team);
             var room = RoomService.GetRoom(result.RoomCode);
             var view = room?.Status == DraftRoomStatus.Lobby ? "lobby" : "draft";
             Nav.NavigateTo($"/room/{result.RoomCode}/{view}?playerId={result.PlayerId}");

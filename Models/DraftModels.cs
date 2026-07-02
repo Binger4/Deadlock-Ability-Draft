@@ -197,6 +197,7 @@ public sealed class DraftRoom
     public string? PackingError { get; set; }
     public string? LastError { get; set; }
     public bool CompletedStatsRecorded { get; set; }
+    public DateTime? CompletedUtc { get; set; }
 
     public DraftTurn? CurrentTurn => CurrentTurnIndex >= 0 && CurrentTurnIndex < TurnOrder.Count ? TurnOrder[CurrentTurnIndex] : null;
     public bool IsCompleted => Status == DraftRoomStatus.Completed;
@@ -317,9 +318,12 @@ public sealed record ActiveDraftStatsRecord(
     string HostName,
     string DraftCode,
     int PlayerCount,
+    int SpectatorCount,
     string DraftMode,
     bool AllowEmptySlotsAsBots,
-    IReadOnlyList<DraftStatsParticipantRecord> Participants);
+    bool ChatDisabled,
+    IReadOnlyList<DraftStatsParticipantRecord> Participants,
+    IReadOnlyList<string> Spectators);
 
 public sealed class CompletedDraftStatsRecord
 {
@@ -410,7 +414,8 @@ public enum DraftTeamBalance
 public enum DraftChatScope
 {
     Allies,
-    All
+    All,
+    Spectators
 }
 
 public enum DraftQuickChatAction
@@ -432,5 +437,7 @@ public enum DraftPickKind
 public enum DeadlockTeam
 {
     HiddenKing,
-    Archmother
+    Archmother,
+    Spectator,
+    Console
 }

@@ -139,6 +139,8 @@ The admin panel also shows draft statistics. Active drafts are read from memory 
 }
 ```
 
+Admins can also send `console` messages into active drafts from the active draft statistics panel.
+
 
 ## Draft Flow
 
@@ -188,6 +190,8 @@ Chat scopes:
 
 - `Allies` sends only to your team
 - `All` sends to both teams
+
+Spectators can join rooms to watch the draft. During an active draft, spectator chat is visible only to other spectators. After the draft ends, new spectator messages become visible to everyone.
 
 Nicknames use team colors. Right click a player name in chat or on the draft panels to mute/unmute that player locally for your current session.
 

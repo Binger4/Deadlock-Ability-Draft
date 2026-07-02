@@ -10,6 +10,7 @@
 @inject DraftStatsService DraftStatsService
 @inject DeadlockVDataUpdateService VDataUpdateService
 @inject IOptions<DeadlockDataOptions> Options
+@inject NavigationManager Nav
 
 <PageTitle>Deadlock Data Admin</PageTitle>
 
@@ -120,8 +121,10 @@
                                 <th>Host</th>
                                 <th>Code</th>
                                 <th>Players</th>
+                                <th>Spectators</th>
                                 <th>Draft mode</th>
                                 <th>Bots enabled</th>
+                                <th>Actions</th>
                                 <th></th>
                             </tr>
                         </thead>
@@ -133,19 +136,43 @@
                                     <td>@draft.HostName</td>
                                     <td><code>@draft.DraftCode</code></td>
                                     <td>@draft.PlayerCount</td>
+                                    <td>@draft.SpectatorCount</td>
                                     <td>@draft.DraftMode</td>
                                     <td><span class="@BoolValueClass(draft.AllowEmptySlotsAsBots)">@FormatBool(draft.AllowEmptySlotsAsBots)</span></td>
+                                    <td class="stats-actions-cell">
+                                        <button class="success-action spectate-action" @onclick="() => SpectateDraft(draft.DraftCode)">Spectate</button>
+                                        <button disabled="@draft.ChatDisabled"
+                                                title="@(draft.ChatDisabled ? "Chat disabled" : "Send console message")"
+                                                @onclick="() => RequestConsoleMessage(draft.DraftCode)">@(draft.ChatDisabled ? "Chat unavailable" : "Send message")</button>
+                                    </td>
                                     <td class="stats-expand-cell">
                                         <button class="stats-expand-button @(expanded ? "expanded" : "")" title="Toggle participants" aria-label="Toggle participants" @onclick="() => ToggleActiveDraft(draft.DraftCode)"></button>
                                     </td>
                                 </tr>
+                                @if (ConsoleMessageDraftCode == draft.DraftCode)
+                                {
+                                    <tr class="stats-participants-row">
+                                        <td colspan="8">
+                                            <div class="inline-confirm admin-console-message">
+                                                <input placeholder="Message"
+                                                       @bind="ConsoleDraftMessage"
+                                                       @bind:event="oninput"
+                                                       @onkeydown="HandleConsoleMessageKey" />
+                                                <button class="primary" disabled="@string.IsNullOrWhiteSpace(ConsoleDraftMessage)" @onclick="SendConsoleMessage">Send</button>
+                                                <button @onclick="CancelConsoleMessage">Cancel</button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
                                 @if (expanded)
                                 {
                                     <tr class="stats-participants-row">
-                                        <td colspan="6">
+                                        <td colspan="8">
                                             <div class="stats-participants-panel">
                                                 <strong>Participants</strong>
                                                 @ParticipantList(draft.Participants)
+                                                <strong>Spectators</strong>
+                                                @SpectatorList(draft.Spectators)
                                             </div>
                                         </td>
                                     </tr>
@@ -474,6 +501,8 @@
     private string AbilityBanFilter = "All";
     private string HeroNameSearch = string.Empty;
     private string AbilityNameSearch = string.Empty;
+    private string? ConsoleMessageDraftCode;
+    private string ConsoleDraftMessage = string.Empty;
     private HashSet<string> BannedHeroes = new(StringComparer.Ordinal);
     private HashSet<string> BannedAbilities = new(StringComparer.Ordinal);
     private HashSet<string> UnbannedAbilities = new(StringComparer.Ordinal);
@@ -551,6 +580,62 @@
         LoadCompletedStats();
     }
 
+    private void SpectateDraft(string draftCode)
+    {
+        Nav.NavigateTo($"/join/{draftCode}?spectator=1");
+    }
+
+    private void RequestConsoleMessage(string draftCode)
+    {
+        var draft = ActiveDraftStats.FirstOrDefault(item => string.Equals(item.DraftCode, draftCode, StringComparison.OrdinalIgnoreCase));
+        if (draft?.ChatDisabled == true)
+        {
+            Message = "Chat is disabled for that draft.";
+            return;
+        }
+
+        ConsoleMessageDraftCode = draftCode;
+        ConsoleDraftMessage = string.Empty;
+    }
+
+    private void CancelConsoleMessage()
+    {
+        ConsoleMessageDraftCode = null;
+        ConsoleDraftMessage = string.Empty;
+    }
+
+    private void SendConsoleMessage()
+    {
+        if (string.IsNullOrWhiteSpace(ConsoleMessageDraftCode))
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(ConsoleDraftMessage))
+        {
+            return;
+        }
+
+        try
+        {
+            RoomService.SendConsoleMessage(ConsoleMessageDraftCode, ConsoleDraftMessage);
+            Message = "Console message sent.";
+            CancelConsoleMessage();
+        }
+        catch (Exception ex)
+        {
+            Message = ex.Message;
+        }
+    }
+
+    private void HandleConsoleMessageKey(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter")
+        {
+            SendConsoleMessage();
+        }
+    }
+
     private void LoadCompletedStats()
     {
         CompletedDraftStats = DraftStatsService.GetCompletedDrafts();
@@ -615,6 +700,33 @@
             builder.OpenElement(sequence++, "em");
             builder.AddAttribute(sequence++, "class", ParticipantTeamClass(participant.Team));
             builder.AddContent(sequence++, participant.Team);
+            builder.CloseElement();
+            builder.CloseElement();
+        }
+
+        builder.CloseElement();
+    };
+
+    private static RenderFragment SpectatorList(IReadOnlyList<string> spectators) => builder =>
+    {
+        var sequence = 0;
+        if (spectators.Count == 0)
+        {
+            builder.OpenElement(sequence++, "span");
+            builder.AddAttribute(sequence++, "class", "data-missing");
+            builder.AddContent(sequence++, "No spectators");
+            builder.CloseElement();
+            return;
+        }
+
+        builder.OpenElement(sequence++, "div");
+        builder.AddAttribute(sequence++, "class", "stats-participants-list");
+        foreach (var spectator in spectators)
+        {
+            builder.OpenElement(sequence++, "span");
+            builder.AddAttribute(sequence++, "class", "stats-participant-chip spectator-chip");
+            builder.OpenElement(sequence++, "strong");
+            builder.AddContent(sequence++, spectator);
             builder.CloseElement();
             builder.CloseElement();
         }

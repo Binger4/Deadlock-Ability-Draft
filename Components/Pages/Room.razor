@@ -70,7 +70,7 @@ else
                     @if (CurrentRoom.Status == DraftRoomStatus.Lobby)
                     {
                         <strong>Waiting in lobby</strong>
-                        <span>@CurrentRoom.Clients.Count joined</span>
+                        <span>@LobbyCountLabel</span>
                     }
                     else if (CurrentRoom.Status == DraftRoomStatus.Drafting && FullRandomActive)
                     {
@@ -80,7 +80,7 @@ else
                     else
                     {
                         <strong>Draft complete</strong>
-                        <span>@CurrentRoom.Clients.Count joined</span>
+                        <span>@LobbyCountLabel</span>
                     }
                 }
                 else
@@ -120,7 +120,7 @@ else
                     <p>Empty slots: <strong>@(CurrentRoom.Config.AllowEmptySlotsAsBots ? "Bots enabled" : "Removed at start")</strong></p>
                     <p>Icons: <strong>@IconCount</strong> mapped</p>
                     <p>Your session: <strong>@CurrentClientLabel</strong></p>
-                    @if (CurrentClient is not null)
+                    @if (CurrentClient is not null && !IsSpectator)
                     {
                         <div class="lobby-actions">
                             <label>
@@ -133,6 +133,10 @@ else
                             <button @onclick="ChangeTeam" disabled="@(SelectedLobbyTeam == CurrentClient.Team)">Change team</button>
                         </div>
                         <button @onclick="ToggleReady">@(CurrentClient.IsReady ? "Mark not ready" : "Mark ready")</button>
+                    }
+                    else if (IsSpectator)
+                    {
+                        <p class="message">Watching as spectator.</p>
                     }
                     @if (IsHost)
                     {
@@ -181,9 +185,12 @@ else
                         <p class="message">Waiting for the host to start.</p>
                     }
                 </div>
-                <div class="lobby-team-board">
-                    @LobbyTeam(DeadlockTeam.HiddenKing)
-                    @LobbyTeam(DeadlockTeam.Archmother)
+                <div class="lobby-stage">
+                    <div class="lobby-team-board">
+                        @LobbyTeam(DeadlockTeam.HiddenKing)
+                        @LobbyTeam(DeadlockTeam.Archmother)
+                    </div>
+                    @LobbySpectators()
                 </div>
             </section>
         }
@@ -285,6 +292,19 @@ else
                     }
                 </aside>
             </section>
+
+            @if (SpectatorClients().Any())
+            {
+                <section class="spectator-strip">
+                    <strong>Spectators</strong>
+                    <div>
+                        @foreach (var spectator in SpectatorClients())
+                        {
+                            <span class="@(spectator.IsConnected ? null : "disconnected")">@spectator.DisplayName</span>
+                        }
+                    </div>
+                </section>
+            }
 
             @if (ActiveContextMenu is not null)
             {
@@ -498,6 +518,7 @@ else
     private DraftPlayerSlot? CurrentTurnPlayer => CurrentRoom?.CurrentTurn is null ? null : CurrentRoom.Players.FirstOrDefault(player => player.SlotNumber == CurrentRoom.CurrentTurn.SlotNumber);
     private DraftClientSession? CurrentClient => CurrentRoom?.Clients.FirstOrDefault(player => player.PlayerId == PlayerId);
     private bool IsHost => CurrentClient?.IsHost == true;
+    private bool IsSpectator => CurrentClient?.Team == DeadlockTeam.Spectator;
     private bool CanPick => CurrentRoom is not null && RoomService.CanPlayerPickCurrentTurn(CurrentRoom, PlayerId);
     private bool IsLocalCurrentTurn => CurrentTurnPlayer is not null &&
                                        !CurrentTurnPlayer.IsDisconnected &&
@@ -508,6 +529,9 @@ else
                                      CurrentRoom.Status != DraftRoomStatus.Completed;
     private bool FullRandomActive => CurrentRoom?.Config.DraftMode == DraftMode.Custom && CurrentRoom.Config.FullRandom;
     private string CurrentClientLabel => CurrentClient is null ? "Unknown" : $"{CurrentClient.DisplayName}, {TeamName(CurrentClient.Team)}";
+    private string LobbyCountLabel => CurrentRoom is null
+        ? "0 joined"
+        : $"{PlayerClients().Count()} player(s), {SpectatorClients().Count()} spectator(s)";
     private string MaskedRoomCode => CurrentRoom is null ? "******" : new string('*', Math.Max(6, CurrentRoom.Code.Length));
     private int IconCount => CurrentRoom is null ? 0 : CurrentRoom.DeadlockData.Heroes.Count(hero => !string.IsNullOrWhiteSpace(hero.IconDataUrl)) + CurrentRoom.DeadlockData.Abilities.Count(ability => !string.IsNullOrWhiteSpace(ability.IconDataUrl));
     private int MaxLobbyHeroPool => Math.Max(1, CurrentRoom?.DeadlockData.Heroes.Count ?? 12);
@@ -699,6 +723,18 @@ else
             ? []
             : CurrentRoom.Clients.Where(client => client.Team == team).OrderBy(client => client.DisplayName, StringComparer.OrdinalIgnoreCase);
 
+    private IEnumerable<DraftClientSession> PlayerClients() =>
+        CurrentRoom is null
+            ? []
+            : CurrentRoom.Clients.Where(client => client.Team is DeadlockTeam.HiddenKing or DeadlockTeam.Archmother);
+
+    private IEnumerable<DraftClientSession> SpectatorClients() =>
+        CurrentRoom is null
+            ? []
+            : CurrentRoom.Clients
+                .Where(client => client.Team == DeadlockTeam.Spectator)
+                .OrderBy(client => client.DisplayName, StringComparer.OrdinalIgnoreCase);
+
     private RenderFragment LobbyTeam(DeadlockTeam team) => builder =>
     {
         var clients = TeamClients(team).ToList();
@@ -744,6 +780,45 @@ else
             }
             builder.CloseElement();
         }
+        builder.CloseElement();
+    };
+
+    private RenderFragment LobbySpectators() => builder =>
+    {
+        var spectators = SpectatorClients().ToList();
+        var sequence = 0;
+        builder.OpenElement(sequence++, "section");
+        builder.AddAttribute(sequence++, "class", "lobby-spectator-strip");
+        builder.OpenElement(sequence++, "strong");
+        builder.AddContent(sequence++, $"Spectators ({spectators.Count})");
+        builder.CloseElement();
+        builder.OpenElement(sequence++, "div");
+        if (spectators.Count == 0)
+        {
+            builder.OpenElement(sequence++, "span");
+            builder.AddAttribute(sequence++, "class", "message");
+            builder.AddContent(sequence++, "No spectators yet.");
+            builder.CloseElement();
+        }
+
+        foreach (var spectator in spectators)
+        {
+            builder.OpenElement(sequence++, "span");
+            builder.AddAttribute(sequence++, "class", $"spectator-chip{(spectator.IsConnected ? string.Empty : " disconnected")}");
+            builder.AddContent(sequence++, spectator.DisplayName);
+            if (IsHost)
+            {
+                builder.OpenElement(sequence++, "button");
+                builder.AddAttribute(sequence++, "class", "kick-button compact-spectator-kick");
+                builder.AddAttribute(sequence++, "onclick", EventCallback.Factory.Create(this, () => KickPlayer(spectator.PlayerId)));
+                builder.AddContent(sequence++, "Kick");
+                builder.CloseElement();
+            }
+
+            builder.CloseElement();
+        }
+
+        builder.CloseElement();
         builder.CloseElement();
     };
 
@@ -1252,19 +1327,22 @@ else
                             <img class="chat-hero-mini" src="@chatHeroIcon" alt="" aria-hidden="true" />
                         }
                         <button class="chat-name @TeamTextClass(message.SenderTeam)"
-                                title="Right click to mute"
+                                title="@(IsConsolePlayer(message.SenderPlayerId) ? "Console messages cannot be muted" : "Right click to mute")"
                                 @oncontextmenu="args => OpenPlayerMenu(args, message.SenderPlayerId, message.SenderName)"
                                 @oncontextmenu:preventDefault="true">
                             @message.SenderName
                         </button>
-                        <span class="chat-text">: @message.Text</span>
+                        <span class="chat-text">: @DisplayChatText(message)</span>
                     </p>
                 }
             </div>
             @if (CurrentClient is not null)
             {
                 <div class="chat-input-row">
-                    <button class="chat-scope-toggle" title="Toggle chat scope" @onclick="ToggleChatScope">@ChatScopeLabel(ChatScope)</button>
+                    <button class="chat-scope-toggle"
+                            title="@(IsSpectator ? "Spectator chat only" : "Toggle chat scope")"
+                            disabled="@IsSpectator"
+                            @onclick="ToggleChatScope">@ChatScopeLabel(CurrentChatScope)</button>
                     <input maxlength="300"
                            placeholder="Message"
                            @bind="ChatText"
@@ -1281,11 +1359,21 @@ else
         <div class="context-menu" style="@($"left:{ActiveContextMenu!.X}px; top:{ActiveContextMenu.Y}px")">
             @if (ActiveContextMenu.Kind == RoomContextMenuKind.Player)
             {
-                <button @onclick="ToggleMutedPlayer">@(IsMuted(ActiveContextMenu.PlayerId) ? "Unmute" : "Mute")</button>
+                @if (IsConsolePlayer(ActiveContextMenu.PlayerId))
+                {
+                    <button disabled>Mute unavailable</button>
+                }
+                else
+                {
+                    <button @onclick="ToggleMutedPlayer">@(IsMuted(ActiveContextMenu.PlayerId) ? "Unmute" : "Mute")</button>
+                }
             }
             else if (!CurrentRoom!.Config.DisableChat)
             {
-                <button @onclick="() => SendQuickChat(DraftQuickChatAction.WantThis)">Want this</button>
+                @if (!IsSpectator)
+                {
+                    <button @onclick="() => SendQuickChat(DraftQuickChatAction.WantThis)">Want this</button>
+                }
                 <button @onclick="() => SendQuickChat(DraftQuickChatAction.Recommend)">Recommend</button>
             }
         </div>
@@ -1298,12 +1386,26 @@ else
             return [];
         }
 
+        var client = CurrentClient;
         return CurrentRoom.ChatMessages
             .Where(message => !IsMuted(message.SenderPlayerId))
-            .Where(message => message.Scope == DraftChatScope.All ||
-                              (CurrentClient is not null && message.SenderTeam == CurrentClient.Team))
+            .Where(message => client is null
+                ? message.Scope == DraftChatScope.All
+                : client.Team == DeadlockTeam.Spectator
+                    ? true
+                    : message.Scope == DraftChatScope.All ||
+                      (message.Scope == DraftChatScope.Allies && message.SenderTeam == client.Team) ||
+                      IsPostDraftSpectatorMessage(message))
             .TakeLast(80);
     }
+
+    private DraftChatScope CurrentChatScope => IsSpectator ? DraftChatScope.Spectators : ChatScope;
+
+    private bool IsPostDraftSpectatorMessage(DraftChatMessage message) =>
+        CurrentRoom?.Status == DraftRoomStatus.Completed &&
+        message.Scope == DraftChatScope.Spectators &&
+        CurrentRoom.CompletedUtc is DateTime completedUtc &&
+        message.SentUtc > completedUtc;
 
     private string? MiniHeroIconForPlayer(string? playerId)
     {
@@ -1327,11 +1429,31 @@ else
         return hero?.MiniIconDataUrl ?? hero?.IconDataUrl;
     }
 
-    private static string ChatScopeLabel(DraftChatScope scope) =>
-        scope == DraftChatScope.All ? "all" : "allies";
+    private string DisplayChatText(DraftChatMessage message) =>
+        IsSpectator ? CensorServerAddress(message.Text) : message.Text;
 
-    private void ToggleChatScope() =>
+    private static string CensorServerAddress(string text)
+    {
+        var index = text.IndexOf("[A:1:", StringComparison.OrdinalIgnoreCase);
+        return index < 0 ? text : text[..index] + new string('*', text.Length - index);
+    }
+
+    private static string ChatScopeLabel(DraftChatScope scope) => scope switch
+    {
+        DraftChatScope.All => "all",
+        DraftChatScope.Spectators => "Spectator",
+        _ => "allies"
+    };
+
+    private void ToggleChatScope()
+    {
+        if (IsSpectator)
+        {
+            return;
+        }
+
         ChatScope = ChatScope == DraftChatScope.Allies ? DraftChatScope.All : DraftChatScope.Allies;
+    }
 
     private void ToggleChatCollapsed() => ChatCollapsed = !ChatCollapsed;
 
@@ -1341,7 +1463,7 @@ else
         try
         {
             ClearMessage();
-            RoomService.SendChatMessage(Code, PlayerId ?? string.Empty, ChatScope, text);
+            RoomService.SendChatMessage(Code, PlayerId ?? string.Empty, CurrentChatScope, text);
             ChatText = string.Empty;
         }
         catch (Exception ex)
@@ -1393,7 +1515,7 @@ else
     private void ToggleMutedPlayer()
     {
         var playerId = ActiveContextMenu?.PlayerId;
-        if (string.IsNullOrWhiteSpace(playerId))
+        if (string.IsNullOrWhiteSpace(playerId) || IsConsolePlayer(playerId))
         {
             CloseContextMenu();
             return;
@@ -1408,7 +1530,10 @@ else
     }
 
     private bool IsMuted(string? playerId) =>
-        !string.IsNullOrWhiteSpace(playerId) && MutedPlayerIds.Contains(playerId);
+        !IsConsolePlayer(playerId) && !string.IsNullOrWhiteSpace(playerId) && MutedPlayerIds.Contains(playerId);
+
+    private static bool IsConsolePlayer(string? playerId) =>
+        string.Equals(playerId, "console", StringComparison.OrdinalIgnoreCase);
 
     private void CloseContextMenu() => ActiveContextMenu = null;
 
@@ -1495,7 +1620,7 @@ else
 
     private void StartDraft()
     {
-        if (CurrentRoom?.Clients.Any(client => !client.IsReady) == true)
+        if (CurrentRoom?.Clients.Any(client => client.Team is DeadlockTeam.HiddenKing or DeadlockTeam.Archmother && !client.IsReady) == true)
         {
             ShowStartConfirmation = true;
             SetMessage("Some players are not ready. Confirm to start anyway.");
@@ -1934,6 +2059,8 @@ else
     {
         DeadlockTeam.HiddenKing => "The Hidden King",
         DeadlockTeam.Archmother => "The Archmother",
+        DeadlockTeam.Spectator => "Spectators",
+        DeadlockTeam.Console => "Console",
         _ => "Unknown"
     };
 
@@ -1943,6 +2070,8 @@ else
     {
         DeadlockTeam.HiddenKing => "hidden-king",
         DeadlockTeam.Archmother => "archmother",
+        DeadlockTeam.Spectator => "spectators",
+        DeadlockTeam.Console => "console",
         _ => "unknown-team"
     };
 

@@ -525,6 +525,7 @@ public sealed class DraftRoomService(
     private const string DraftStartSound = "/sounds/draft-start.mp3";
     private const string AutoPickSound = "/sounds/auto-pick.mp3";
     private const int MaxChatMessageLength = 300;
+    private static readonly DeadlockTeam[] PlayerTeams = [DeadlockTeam.HiddenKing, DeadlockTeam.Archmother];
 
     public DraftRoom? GetRoom(string code) => _rooms.TryGetValue(NormalizeCode(code), out var room) ? room : null;
 
@@ -544,9 +545,15 @@ public sealed class DraftRoomService(
                     HostName(room),
                     room.Code,
                     DraftTurnService.ActiveSlots(room).Count(),
+                    SpectatorClients(room).Count(),
                     DraftModeLabel(room.Config.DraftMode),
                     room.Config.AllowEmptySlotsAsBots,
-                    StatsParticipants(room)));
+                    room.Config.DisableChat,
+                    StatsParticipants(room),
+                    SpectatorClients(room)
+                        .OrderBy(client => client.DisplayName, StringComparer.OrdinalIgnoreCase)
+                        .Select(client => client.DisplayName)
+                        .ToList()));
             }
         }
 
@@ -629,6 +636,13 @@ public sealed class DraftRoomService(
         {
             if (room.Status != DraftRoomStatus.Lobby)
             {
+                if (team == DeadlockTeam.Spectator)
+                {
+                    var spectatorResult = AddClient(room, playerName, DeadlockTeam.Spectator, isHost: false);
+                    Notify(room.Code);
+                    return spectatorResult;
+                }
+
                 var reconnectResult = ReconnectStartedDraft(room, playerName);
                 Notify(room.Code);
                 return reconnectResult;
@@ -656,13 +670,30 @@ public sealed class DraftRoomService(
                 return;
             }
 
-            if (room.Clients.Count(item => item.PlayerId != playerId && item.Team == team) >= TeamCapacity(room.Config, team))
+            if (client.Team == DeadlockTeam.Spectator || team == DeadlockTeam.Spectator)
+            {
+                throw new InvalidOperationException("Spectators must join through the spectator join flow.");
+            }
+
+            if (team == DeadlockTeam.Console)
+            {
+                throw new InvalidOperationException("Invalid team.");
+            }
+
+            if (IsPlayerTeam(team) &&
+                PlayerClients(room).Count(client => client.PlayerId != playerId) >= Math.Max(1, room.Config.MaxPlayers <= 0 ? 12 : room.Config.MaxPlayers))
+            {
+                throw new InvalidOperationException($"This room already has the max player count ({room.Config.MaxPlayers}).");
+            }
+
+            if (IsPlayerTeam(team) &&
+                room.Clients.Count(item => item.PlayerId != playerId && item.Team == team) >= TeamCapacity(room.Config, team))
             {
                 throw new InvalidOperationException($"{TeamName(team)} already has {TeamCapacity(room.Config, team)} players.");
             }
 
             client.Team = team;
-            client.IsReady = false;
+            client.IsReady = team == DeadlockTeam.Spectator;
             client.LastSeenUtc = DateTime.UtcNow;
         }
 
@@ -692,6 +723,11 @@ public sealed class DraftRoomService(
         lock (room)
         {
             var client = GetClient(room, playerId);
+            if (client.Team == DeadlockTeam.Spectator)
+            {
+                throw new InvalidOperationException("Spectators do not ready up.");
+            }
+
             client.IsReady = ready;
             client.LastSeenUtc = DateTime.UtcNow;
             if (client.SlotNumber is not null)
@@ -726,11 +762,27 @@ public sealed class DraftRoomService(
         lock (room)
         {
             var client = GetClient(room, playerId);
+            if (client.Team == DeadlockTeam.Spectator && action == DraftQuickChatAction.WantThis)
+            {
+                throw new InvalidOperationException("Spectators can only recommend picks.");
+            }
+
             var itemName = QuickChatItemName(room, pickedKey);
             var text = action == DraftQuickChatAction.Recommend
                 ? $"I recommend picking {itemName}"
                 : $"I want to pick {itemName}";
-            AddChatMessage(room, client, DraftChatScope.Allies, text, isQuick: true);
+            AddChatMessage(room, client, client.Team == DeadlockTeam.Spectator ? DraftChatScope.Spectators : DraftChatScope.Allies, text, isQuick: true);
+        }
+
+        Notify(room.Code);
+    }
+
+    public void SendConsoleMessage(string code, string message)
+    {
+        var room = GetRequiredRoom(code);
+        lock (room)
+        {
+            AddConsoleChatMessage(room, message);
         }
 
         Notify(room.Code);
@@ -868,6 +920,11 @@ public sealed class DraftRoomService(
             else
             {
                 client.IsConnected = false;
+                if (client.Team == DeadlockTeam.Spectator)
+                {
+                    shouldNotify = true;
+                }
+
                 if (client.SlotNumber is not null)
                 {
                     var slot = room.Players.FirstOrDefault(item => item.SlotNumber == client.SlotNumber);
@@ -904,12 +961,13 @@ public sealed class DraftRoomService(
                 throw new InvalidOperationException("Draft already started.");
             }
 
-            if (room.Clients.Count == 0)
+            var playerClients = PlayerClients(room).ToList();
+            if (playerClients.Count == 0)
             {
                 throw new InvalidOperationException("At least one player must join before starting.");
             }
 
-            var emptyName = room.Clients.FirstOrDefault(client => string.IsNullOrWhiteSpace(client.DisplayName));
+            var emptyName = playerClients.FirstOrDefault(client => string.IsNullOrWhiteSpace(client.DisplayName));
             if (emptyName is not null)
             {
                 throw new InvalidOperationException("Every joined player must have a display name before the draft starts.");
@@ -921,7 +979,7 @@ public sealed class DraftRoomService(
                 ApplyTeamBalance(room);
             }
 
-            AssignDraftSlots(room, room.Clients);
+            AssignDraftSlots(room, playerClients);
 
             if (!DraftTurnService.ActiveSlots(room).Any())
             {
@@ -973,6 +1031,11 @@ public sealed class DraftRoomService(
             room.ValidationMessages.Clear();
             room.ValidationMessages.AddRange(warnings);
             AddSound(room, DraftSoundScope.All, DraftStartSound);
+            AddConsoleChatMessage(
+                room,
+                "Right-click an ability to recommend it or tell your allies that you want it. Spectators cannot see messages containing an in-game server connection IP address",
+                throwOnDisabled: false,
+                isQuick: true);
         }
 
         StartRoomTimer(room.Code);
@@ -1320,6 +1383,7 @@ public sealed class DraftRoomService(
         room.Status = DraftRoomStatus.Completed;
         room.TimerPhase = DraftTimerPhase.None;
         room.TimerEndsUtc = DateTime.UtcNow;
+        room.CompletedUtc = room.TimerEndsUtc;
         abilityAssignmentService.ValidateFinalDraft(room);
         RecordCompletedDraftStats(room);
         StopRoomTimer(room.Code);
@@ -1429,6 +1493,7 @@ public sealed class DraftRoomService(
         room.Status = DraftRoomStatus.Completed;
         room.TimerPhase = DraftTimerPhase.None;
         room.TimerEndsUtc = DateTime.UtcNow;
+        room.CompletedUtc = room.TimerEndsUtc;
         room.TimerWarningTurnIndex = null;
         abilityAssignmentService.ValidateFinalDraft(room);
         AddSound(room, DraftSoundScope.All, AutoPickSound);
@@ -1568,6 +1633,7 @@ public sealed class DraftRoomService(
         {
             room.Status = DraftRoomStatus.Completed;
             room.TimerPhase = DraftTimerPhase.None;
+            room.CompletedUtc = DateTime.UtcNow;
             RecordCompletedDraftStats(room);
             StopRoomTimer(room.Code);
             return;
@@ -1711,6 +1777,7 @@ public sealed class DraftRoomService(
         room.PackingLogPath = null;
         room.PackingError = null;
         room.LastError = null;
+        room.CompletedUtc = null;
 
         foreach (var player in room.Players)
         {
@@ -1754,13 +1821,14 @@ public sealed class DraftRoomService(
 
     private static void ValidateRoomStartConfig(DraftRoom room)
     {
-        if (room.Clients.Count > room.Config.MaxPlayers)
+        var playerClients = PlayerClients(room).ToList();
+        if (playerClients.Count > room.Config.MaxPlayers)
         {
-            throw new InvalidOperationException($"This room allows {room.Config.MaxPlayers} players, but {room.Clients.Count} joined.");
+            throw new InvalidOperationException($"This room allows {room.Config.MaxPlayers} players, but {playerClients.Count} joined.");
         }
 
-        var hiddenKingCount = room.Clients.Count(client => client.Team == DeadlockTeam.HiddenKing);
-        var archmotherCount = room.Clients.Count(client => client.Team == DeadlockTeam.Archmother);
+        var hiddenKingCount = playerClients.Count(client => client.Team == DeadlockTeam.HiddenKing);
+        var archmotherCount = playerClients.Count(client => client.Team == DeadlockTeam.Archmother);
         if (room.Config.TeamBalance == DraftTeamBalance.RequireEqualTeams && hiddenKingCount != archmotherCount)
         {
             throw new InvalidOperationException("Custom team balance requires equal teams before starting.");
@@ -1773,7 +1841,7 @@ public sealed class DraftRoomService(
             throw new InvalidOperationException($"Hero pool size cannot exceed available non-banned heroes ({availableHeroes}).");
         }
 
-        var activePlayerCount = room.Config.AllowEmptySlotsAsBots ? room.Config.MaxPlayers : room.Clients.Count;
+        var activePlayerCount = room.Config.AllowEmptySlotsAsBots ? room.Config.MaxPlayers : playerClients.Count;
         if (room.Config.HeroPoolSize < activePlayerCount)
         {
             throw new InvalidOperationException("Hero pool size must be at least active player count.");
@@ -1787,7 +1855,7 @@ public sealed class DraftRoomService(
             return;
         }
 
-        var clients = room.Clients.OrderBy(_ => RandomNumberGenerator.GetInt32(int.MaxValue)).ToList();
+        var clients = PlayerClients(room).OrderBy(_ => RandomNumberGenerator.GetInt32(int.MaxValue)).ToList();
         var hiddenCapacity = TeamDraftSlotCount(room.Config, DeadlockTeam.HiddenKing);
         for (var i = 0; i < clients.Count; i++)
         {
@@ -1877,12 +1945,42 @@ public sealed class DraftRoomService(
             throw new InvalidOperationException("Enter your name before joining.");
         }
 
-        var capacity = TeamCapacity(room.Config, team);
-        if (room.Clients.Count >= Math.Max(1, room.Config.MaxPlayers <= 0 ? 12 : room.Config.MaxPlayers))
+        if (team == DeadlockTeam.Console || (isHost && team == DeadlockTeam.Spectator))
+        {
+            throw new InvalidOperationException("Invalid team.");
+        }
+
+        var normalizedName = playerName.Trim();
+        if (team == DeadlockTeam.Spectator)
+        {
+            var oldSpectator = room.Clients.FirstOrDefault(client =>
+                client.Team == DeadlockTeam.Spectator &&
+                !client.IsConnected &&
+                string.Equals(client.DisplayName, normalizedName, StringComparison.Ordinal));
+            if (oldSpectator is not null)
+            {
+                room.Clients.Remove(oldSpectator);
+            }
+
+            var spectator = new DraftClientSession
+            {
+                PlayerId = Guid.NewGuid().ToString("N"),
+                DisplayName = normalizedName,
+                IsHost = false,
+                Team = DeadlockTeam.Spectator,
+                IsReady = true,
+                LastSeenUtc = DateTime.UtcNow
+            };
+            room.Clients.Add(spectator);
+            return new JoinRoomResult(room.Code, spectator.PlayerId, null);
+        }
+
+        if (PlayerClients(room).Count() >= Math.Max(1, room.Config.MaxPlayers <= 0 ? 12 : room.Config.MaxPlayers))
         {
             throw new InvalidOperationException($"This room already has the max player count ({room.Config.MaxPlayers}).");
         }
 
+        var capacity = TeamCapacity(room.Config, team);
         if (room.Clients.Count(client => client.Team == team) >= capacity)
         {
             throw new InvalidOperationException($"{TeamName(team)} already has {capacity} players.");
@@ -1891,7 +1989,7 @@ public sealed class DraftRoomService(
         var client = new DraftClientSession
         {
             PlayerId = Guid.NewGuid().ToString("N"),
-            DisplayName = playerName.Trim(),
+            DisplayName = normalizedName,
             IsHost = isHost,
             Team = team,
             IsReady = false,
@@ -2002,8 +2100,19 @@ public sealed class DraftRoomService(
     {
         DeadlockTeam.HiddenKing => "The Hidden King",
         DeadlockTeam.Archmother => "The Archmother",
+        DeadlockTeam.Spectator => "Spectators",
+        DeadlockTeam.Console => "Console",
         _ => "Unknown"
     };
+
+    private static bool IsPlayerTeam(DeadlockTeam team) =>
+        team is DeadlockTeam.HiddenKing or DeadlockTeam.Archmother;
+
+    private static IEnumerable<DraftClientSession> PlayerClients(DraftRoom room) =>
+        room.Clients.Where(client => IsPlayerTeam(client.Team));
+
+    private static IEnumerable<DraftClientSession> SpectatorClients(DraftRoom room) =>
+        room.Clients.Where(client => client.Team == DeadlockTeam.Spectator);
 
     private static DraftClientSession GetClient(DraftRoom room, string playerId) =>
         room.Clients.FirstOrDefault(client => client.PlayerId == playerId)
@@ -2014,7 +2123,7 @@ public sealed class DraftRoomService(
 
     private static void EnsureHost(DraftRoom room, string playerId)
     {
-        if (!room.Clients.Any(player => player.PlayerId == playerId && player.IsHost))
+        if (!room.Clients.Any(player => player.PlayerId == playerId && player.IsHost && player.Team != DeadlockTeam.Spectator))
         {
             throw new InvalidOperationException("Only the room host can do that.");
         }
@@ -2040,6 +2149,11 @@ public sealed class DraftRoomService(
     {
         var client = room.Clients.FirstOrDefault(player => player.PlayerId == playerId);
         if (client is null || !client.IsConnected)
+        {
+            return false;
+        }
+
+        if (client.Team == DeadlockTeam.Spectator)
         {
             return false;
         }
@@ -2108,6 +2222,15 @@ public sealed class DraftRoomService(
             throw new InvalidOperationException("Reconnect before sending chat messages.");
         }
 
+        if (client.Team == DeadlockTeam.Spectator)
+        {
+            scope = DraftChatScope.Spectators;
+        }
+        else if (scope == DraftChatScope.Spectators)
+        {
+            throw new InvalidOperationException("Only spectators can send spectator chat.");
+        }
+
         var clean = CleanChatMessage(message);
         if (string.IsNullOrWhiteSpace(clean))
         {
@@ -2120,6 +2243,37 @@ public sealed class DraftRoomService(
         }
 
         AddRoomChatMessage(room, client.PlayerId, client.DisplayName, client.Team, scope, clean, isQuick);
+    }
+
+    private static void AddConsoleChatMessage(DraftRoom room, string message, bool throwOnDisabled = true, bool isQuick = false)
+    {
+        if (room.Config.DisableChat)
+        {
+            if (throwOnDisabled)
+            {
+                throw new InvalidOperationException("Chat is disabled for this room.");
+            }
+
+            return;
+        }
+
+        var clean = CleanChatMessage(message);
+        if (string.IsNullOrWhiteSpace(clean))
+        {
+            if (throwOnDisabled)
+            {
+                throw new InvalidOperationException("Enter a message before sending.");
+            }
+
+            return;
+        }
+
+        if (clean.Length > MaxChatMessageLength)
+        {
+            clean = clean[..MaxChatMessageLength];
+        }
+
+        AddRoomChatMessage(room, "console", "console", DeadlockTeam.Console, DraftChatScope.All, clean, isQuick);
     }
 
     private static void AddRandomPickChatMessage(DraftRoom room, DraftPlayerSlot slot, string pickedKey)
@@ -2249,6 +2403,8 @@ public sealed class DraftRoomService(
     {
         DeadlockTeam.HiddenKing => "HK",
         DeadlockTeam.Archmother => "AM",
+        DeadlockTeam.Spectator => "SPEC",
+        DeadlockTeam.Console => "CONSOLE",
         _ => "Unknown"
     };
 
@@ -2323,14 +2479,15 @@ public sealed class DraftRoomService(
     {
         if (clients is not null)
         {
-            if (clients.Count > config.MaxPlayers)
+            var playerClients = clients.Where(client => IsPlayerTeam(client.Team)).ToList();
+            if (playerClients.Count > config.MaxPlayers)
             {
-                throw new InvalidOperationException($"Max players cannot be lower than the current lobby size ({clients.Count}).");
+                throw new InvalidOperationException($"Max players cannot be lower than the current lobby size ({playerClients.Count}).");
             }
 
-            foreach (var team in Enum.GetValues<DeadlockTeam>())
+            foreach (var team in PlayerTeams)
             {
-                var teamCount = clients.Count(client => client.Team == team);
+                var teamCount = playerClients.Count(client => client.Team == team);
                 var capacity = TeamCapacity(config, team);
                 if (teamCount > capacity)
                 {
@@ -2378,11 +2535,21 @@ public sealed class DraftRoomService(
 
     private static int TeamCapacity(DraftRoomConfig config, DeadlockTeam team)
     {
+        if (team == DeadlockTeam.Spectator)
+        {
+            return int.MaxValue;
+        }
+
         return TeamDraftSlotCount(config, team);
     }
 
     private static int TeamDraftSlotCount(DraftRoomConfig config, DeadlockTeam team)
     {
+        if (!IsPlayerTeam(team))
+        {
+            return 0;
+        }
+
         var maxPlayers = Math.Max(1, config.MaxPlayers <= 0 ? 12 : config.MaxPlayers);
         var hiddenKing = (maxPlayers + 1) / 2;
         var archmother = maxPlayers / 2;
@@ -3816,13 +3983,14 @@ public static class DraftDisplayExtensions
     {
         DeadlockTeam.HiddenKing => "The Hidden King",
         DeadlockTeam.Archmother => "The Archmother",
+        DeadlockTeam.Spectator => "Spectators",
         _ => "Unknown"
     };
 
     public static int TeamIndex(this DraftPlayerSlot slot) =>
         slot.TeamSlotIndex > 0
             ? slot.TeamSlotIndex
-            : slot.Team == DeadlockTeam.HiddenKing ? slot.SlotNumber : slot.SlotNumber - 6;
+            : slot.Team == DeadlockTeam.HiddenKing ? slot.SlotNumber : slot.Team == DeadlockTeam.Archmother ? slot.SlotNumber - 6 : 0;
 }
 
 public sealed class DraftCacheCleanupService(

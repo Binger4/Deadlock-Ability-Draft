@@ -47,7 +47,8 @@ a {
 
 button,
 input,
-select {
+select,
+textarea {
     font: inherit;
 }
 
@@ -91,7 +92,8 @@ button.primary,
 }
 
 input,
-select {
+select,
+textarea {
     width: 100%;
     min-width: 0;
     border: 1px solid var(--line);
@@ -393,6 +395,16 @@ h3 {
     color: var(--archmother);
 }
 
+.team-text.spectators,
+.team-heading.spectators {
+    color: var(--text);
+}
+
+.team-text.console,
+.team-heading.console {
+    color: #8f9995;
+}
+
 .server-status {
     border: 1px solid var(--line);
     border-radius: 8px;
@@ -681,6 +693,23 @@ h3 {
     text-align: right !important;
 }
 
+.stats-actions-cell {
+    display: flex;
+    gap: .4rem;
+    flex-wrap: wrap;
+}
+
+.success-action {
+    border-color: rgba(54, 216, 93, .42);
+    background: rgba(24, 90, 34, .46);
+    color: #d8ffe0;
+    font-weight: 800;
+}
+
+.spectate-action {
+    box-shadow: 0 0 0 1px rgba(54, 216, 93, .18);
+}
+
 .stats-expand-button {
     min-height: 28px;
     width: 30px;
@@ -754,6 +783,21 @@ h3 {
 
 .stats-participant-chip em.unknown-team {
     color: var(--muted);
+}
+
+.stats-participant-chip.spectator-chip strong {
+    color: var(--text);
+}
+
+.admin-console-message {
+    display: grid;
+    grid-template-columns: minmax(220px, 1fr) auto auto;
+    gap: .5rem;
+    align-items: start;
+}
+
+.admin-console-message input {
+    min-height: 38px;
 }
 
 .data-missing {
@@ -925,6 +969,7 @@ h3 {
     grid-template-columns: 340px minmax(0, 1fr);
     gap: 1rem;
     padding: 1rem clamp(1rem, 3vw, 2rem);
+    align-items: start;
 }
 
 .lobby-panel {
@@ -944,10 +989,20 @@ h3 {
     grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.lobby-stage {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: .45rem;
+    align-self: start;
+}
+
 .lobby-team-board {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 1rem;
+    height: clamp(880px, 117vh, 1200px);
+    min-height: 0;
 }
 
 .lobby-team {
@@ -958,6 +1013,8 @@ h3 {
     display: grid;
     align-content: start;
     gap: .65rem;
+    height: 100%;
+    min-height: 0;
 }
 
 .lobby-player-card {
@@ -998,6 +1055,55 @@ h3 {
 
 .compact-kick {
     justify-self: start;
+}
+
+.lobby-spectator-strip {
+    border: 1px solid rgba(255, 255, 255, .1);
+    border-radius: 8px;
+    background: rgba(5, 8, 7, .56);
+    width: 100%;
+    flex: 0 0 auto;
+    margin-top: 0;
+    padding: .32rem .55rem;
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    flex-wrap: wrap;
+}
+
+.lobby-spectator-strip strong {
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    font-size: .78rem;
+    margin-right: .1rem;
+}
+
+.lobby-spectator-strip div {
+    display: flex;
+    gap: .35rem;
+    flex-wrap: wrap;
+}
+
+.spectator-chip {
+    border: 1px solid rgba(255, 255, 255, .1);
+    border-radius: 999px;
+    padding: .14rem .38rem;
+    background: rgba(0, 0, 0, .22);
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+}
+
+.spectator-chip.disconnected {
+    color: var(--muted);
+    opacity: .68;
+}
+
+.compact-spectator-kick {
+    min-height: 22px;
+    padding: .08rem .32rem;
+    font-size: .68rem;
 }
 
 .lobby-actions,
@@ -1200,6 +1306,43 @@ h3 {
     object-fit: contain;
     border-radius: 50%;
     background: rgba(0, 0, 0, .28);
+}
+
+.spectator-strip {
+    margin: 0 clamp(1rem, 2vw, 1.6rem) 1.25rem;
+    border: 1px solid rgba(255, 255, 255, .1);
+    border-radius: 8px;
+    background: rgba(5, 8, 7, .68);
+    padding: .75rem 1rem;
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    flex-wrap: wrap;
+}
+
+.spectator-strip strong {
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    font-size: .78rem;
+}
+
+.spectator-strip div {
+    display: flex;
+    gap: .45rem;
+    flex-wrap: wrap;
+}
+
+.spectator-strip span {
+    border: 1px solid rgba(255, 255, 255, .1);
+    border-radius: 999px;
+    padding: .18rem .5rem;
+    background: rgba(0, 0, 0, .22);
+}
+
+.spectator-strip span.disconnected {
+    color: var(--muted);
+    opacity: .68;
 }
 
 .arena-layout {
@@ -1886,6 +2029,10 @@ h3 {
     font-weight: 900;
 }
 
+.chat-scope-toggle:disabled {
+    opacity: .78;
+}
+
 .context-menu-backdrop {
     position: fixed;
     inset: 0;
@@ -2043,6 +2190,11 @@ h3 {
 
     .team-column {
         display: grid;
+    }
+
+    .lobby-team-board {
+        height: auto;
+        min-height: auto;
     }
 
     .center-board {
