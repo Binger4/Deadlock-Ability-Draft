@@ -27,6 +27,7 @@
     "hero_yakuza"
   ],
   "bannedAbilities": [
+    "ability_fencer_ultimate",
     "ability_power_jump",
     "ability_skyrunner_ult",
     "ability_target_practice",
@@ -50,6 +51,7 @@
     "ability_wrecker_ultimate",
     "ability_wrecking_ball",
     "ability_wrecking_ball_throw",
+    "citadel_ability_card_toss",
     "citadel_ability_slide",
     "citadel_ability_sprint",
     "citadel_ability_static_charge_v2",
