@@ -343,11 +343,11 @@ else
                             @(IsGeneratingFiles ? "Generating..." : "Generate files")
                         </button>
                     }
-                    @if (CurrentRoom.GeneratedZip is not null)
+                    @if (CurrentRoom.GeneratedZip is not null && !HasUsableGeneratedVpk)
                     {
                         <a class="download" download="@CurrentRoom.GeneratedZipName" href="@DownloadHref">Download ZIP</a>
                     }
-                    @if (CurrentRoom.GeneratedVpk is not null)
+                    @if (HasUsableGeneratedVpk)
                     {
                         <div class="download-actions">
                             <a class="download" download="@CurrentRoom.GeneratedVpkName" href="@DownloadVpkHref">Download VPK</a>
@@ -536,6 +536,8 @@ else
     private int IconCount => CurrentRoom is null ? 0 : CurrentRoom.DeadlockData.Heroes.Count(hero => !string.IsNullOrWhiteSpace(hero.IconDataUrl)) + CurrentRoom.DeadlockData.Abilities.Count(ability => !string.IsNullOrWhiteSpace(ability.IconDataUrl));
     private int MaxLobbyHeroPool => Math.Max(1, CurrentRoom?.DeadlockData.Heroes.Count ?? 12);
     private int MaxLobbyPlayers => Math.Max(1, LobbyHeroPoolSize);
+    private bool HasUsableGeneratedVpk => CurrentRoom?.GeneratedVpk is { Length: > 0 } &&
+                                          !string.IsNullOrWhiteSpace(CurrentRoom.GeneratedVpkName);
     private string DownloadHref => CurrentRoom?.GeneratedZip is null ? "#" : $"data:application/zip;base64,{Convert.ToBase64String(CurrentRoom.GeneratedZip)}";
     private string DownloadVpkHref => CurrentRoom?.GeneratedVpk is null ? "#" : $"data:application/octet-stream;base64,{Convert.ToBase64String(CurrentRoom.GeneratedVpk)}";
     private const string SearchPathsBlock = """
