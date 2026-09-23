@@ -1,13 +1,38 @@
 # Build output
 bin/
 obj/
+/publish/
+/artifacts/
+*.pdb
+*.binlog
+TestResults/
+coverage/
+*.trx
+*.coverage
+*.coveragexml
+Tools/DeadworksSdk/
+Tools/DeadworksRelease/
+Integration/local/
+# Rebuilt from Data/Icons by Sync-Assets.ps1 (also run by Build-BaseAddon.ps1).
+# Keep any hand-authored images outside this generated directory in Git.
+Integration/Addon/panorama/images/ability_draft/
+Integration/Addon/panorama/scripts/ability_draft_assets.js
+Integration/Addon/panorama/layout/ability_draft_images.xml
+Integration/dist/
 .vs/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.dotnet-home/
 
 # Local ASP.NET/DataProtection keys
 App_Data/
 
 # Local SDK/tool install. DeadPacker can stay in the repo.
 Tools/Reduced_CSDK_12/
+Tools/Source2ViewerCLI/
 
 # Generated room output and temporary packing workspace
 Data/Generated/**
@@ -19,6 +44,8 @@ Data/Packing/**
 Data/Stats/**
 !Data/Stats/
 !Data/Stats/.gitkeep
+Data/site-access.json
+Data/project-links.json
 Data/Deadlock/*
 !Data/Deadlock/
 !Data/Deadlock/.gitkeep
@@ -27,10 +54,31 @@ Data/Deadlock/*
 
 # Local logs / generated packing artifacts that may be created in older paths
 *.log
+*.pid
+*.tmp
+*.bak
+*.orig
+*.rej
+*.stackdump
+__pycache__/
+*.pyc
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Local investigation notes; public setup guides are kept below.
+Integration/*.md
+!Integration/HOSTING.md
+!Integration/RUNNING.md
+*.dmp
+*.mdmp
 *.vpk
 deadpacker_*.toml
 
-# Local config. Commit appsettings.example.json, not real appsettings files.
+# Local config
 appsettings.json
 appsettings.*.json
 !appsettings.example.json
+.env
+.env.*
+!.env.example

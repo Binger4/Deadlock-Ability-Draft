@@ -542,7 +542,7 @@ public sealed class DraftRoomService(
                 }
 
                 records.Add(new ActiveDraftStatsRecord(
-                    HostName(room),
+                    room.IsPublicQueue ? "none" : HostName(room),
                     room.Code,
                     DraftTurnService.ActiveSlots(room).Count(),
                     SpectatorClients(room).Count(),
@@ -553,7 +553,7 @@ public sealed class DraftRoomService(
                     SpectatorClients(room)
                         .OrderBy(client => client.DisplayName, StringComparer.OrdinalIgnoreCase)
                         .Select(client => client.DisplayName)
-                        .ToList()));
+                        .ToList(), room.Source));
             }
         }
 
@@ -840,7 +840,7 @@ public sealed class DraftRoomService(
         Notify(normalizedCode);
     }
 
-    public void MarkPlayerConnected(string code, string? playerId)
+    public void MarkPlayerConnected(string code, string? playerId, bool inGame = false)
     {
         if (string.IsNullOrWhiteSpace(playerId))
         {
@@ -862,6 +862,8 @@ public sealed class DraftRoomService(
                 return;
             }
 
+            if (inGame) client.IsInGameConnected = true;
+            else client.IsBrowserConnected = true;
             client.LastSeenUtc = DateTime.UtcNow;
             if (!client.IsConnected)
             {
@@ -890,7 +892,7 @@ public sealed class DraftRoomService(
         }
     }
 
-    public void MarkPlayerDisconnected(string code, string? playerId)
+    public void MarkPlayerDisconnected(string code, string? playerId, bool inGame = false)
     {
         if (string.IsNullOrWhiteSpace(playerId))
         {
@@ -912,7 +914,11 @@ public sealed class DraftRoomService(
                 return;
             }
 
-            if (room.Status == DraftRoomStatus.Lobby)
+            if (inGame) client.IsInGameConnected = false;
+            else client.IsBrowserConnected = false;
+            if (client.IsBrowserConnected || client.IsInGameConnected) return;
+
+            if (room.Status == DraftRoomStatus.Lobby && !room.InGameManaged)
             {
                 RemoveClientFromRoom(room, client, null, wasKicked: false);
                 shouldNotify = true;
@@ -948,6 +954,40 @@ public sealed class DraftRoomService(
         {
             Notify(room.Code);
         }
+    }
+
+    // Explicit game abandonment invalidates the old browser participant as well as its transport.
+    public void AbandonInGameParticipant(string code, string playerId)
+    {
+        var room = GetRequiredRoom(code);
+        lock (room)
+        {
+            var client = room.Clients.SingleOrDefault(c => c.PlayerId == playerId);
+            if (client?.SteamId64 is null) throw new InvalidOperationException("No game participant to abandon.");
+            var wasHost = client.IsHost;
+            RemoveClientFromRoom(room, client, "You abandoned this draft or match.", wasKicked: true);
+            if (wasHost && room.Clients.FirstOrDefault(c => IsPlayerTeam(c.Team)) is { } next)
+            {
+                next.IsHost = true;
+                foreach (var slot in room.Players) slot.IsHost = slot.PlayerId == next.PlayerId;
+            }
+        }
+        Notify(room.Code);
+    }
+
+    public void CloseInGameRoom(string code, string message)
+    {
+        var room = GetRoom(code);
+        if (room is null) return;
+        lock (room)
+        {
+            if (!room.InGameManaged) return;
+            _roomNotices[room.Code] = message;
+            foreach (var client in room.Clients) _playerNotices[$"{room.Code}:{client.PlayerId}"] = message;
+            _rooms.TryRemove(room.Code, out _);
+            StopRoomTimer(room.Code);
+        }
+        Notify(room.Code);
     }
 
     public void StartDraft(string code, string playerId)
@@ -1071,6 +1111,20 @@ public sealed class DraftRoomService(
         Notify(room.Code);
     }
 
+    public void FinalizeRuntimeResult(string code, string playerId, string resultId)
+    {
+        var room = GetRequiredRoom(code);
+        lock (room)
+        {
+            EnsureHost(room, playerId);
+            if (!room.IsCompleted) throw new InvalidOperationException("Complete the draft first.");
+            if (room.RuntimeResultId is not null && room.RuntimeResultId != resultId)
+                throw new InvalidOperationException("Runtime result is already finalized.");
+            room.RuntimeResultId = resultId;
+        }
+        Notify(room.Code);
+    }
+
     public void ReorderRegularAbility(string code, string playerId, int slotNumber, int fromIndex, int toIndex)
     {
         var room = GetRequiredRoom(code);
@@ -1079,6 +1133,11 @@ public sealed class DraftRoomService(
             if (room.Status == DraftRoomStatus.Lobby)
             {
                 throw new InvalidOperationException("Abilities can only be reordered after the draft starts.");
+            }
+
+            if (room.RuntimeResultId is not null)
+            {
+                throw new InvalidOperationException("Slot order has been finalized for the Deadworks server.");
             }
 
             if (room.GeneratedZip is not null)
@@ -1127,7 +1186,7 @@ public sealed class DraftRoomService(
 
     public bool CanPlayerReorderSlot(DraftRoom room, string? playerId, DraftPlayerSlot slot)
     {
-        if (string.IsNullOrWhiteSpace(playerId) || room.Status == DraftRoomStatus.Lobby || room.GeneratedZip is not null)
+        if (string.IsNullOrWhiteSpace(playerId) || room.Status == DraftRoomStatus.Lobby || room.GeneratedZip is not null || room.RuntimeResultId is not null)
         {
             return false;
         }
@@ -2014,6 +2073,7 @@ public sealed class DraftRoomService(
 
         var matches = room.Players
             .Where(slot => slot.IsDisconnected &&
+                           !room.Clients.Any(client => client.PlayerId == slot.PlayerId && client.SteamId64 is not null) &&
                            !slot.IsBot &&
                            !slot.IsHost &&
                            string.Equals(slot.DisplayName, normalizedName, StringComparison.Ordinal))
@@ -2387,7 +2447,7 @@ public sealed class DraftRoomService(
             .Where(player => !player.IsBot)
             .OrderBy(player => player.Team)
             .ThenBy(player => player.TeamIndex())
-            .Select(player => new DraftStatsParticipantRecord(player.NameOrFallback, StatsTeamCode(player)))
+            .Select(player => new DraftStatsParticipantRecord(player.NameOrFallback, room.IsPublicQueue ? StatsTeamCode(player).TrimEnd('*') : StatsTeamCode(player)))
             .ToList();
 
     private static string DraftModeLabel(DraftMode mode) => mode switch

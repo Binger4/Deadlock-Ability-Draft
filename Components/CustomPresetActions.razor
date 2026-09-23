@@ -1,0 +1,89 @@
+@using abilitydraft.Services
+@implements IDisposable
+@inject PresetTransferService Transfers
+@inject IJSRuntime JS
+
+<div class="preset-actions">
+    <button type="button" @onclick="Generate">Generate preset</button>
+    @if (OpenBrowser is not null)
+    {
+        <button type="button" @onclick="LoadInBrowser">Load preset</button>
+    }
+    else
+    {
+        <label class="preset-upload">Load preset<InputFile OnChange="Load" accept="application/json,.json" /></label>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public Func<string> Export { get; set; } = null!;
+    [Parameter, EditorRequired] public EventCallback<string> Import { get; set; }
+    [Parameter] public Action<string>? OpenBrowser { get; set; }
+    [Parameter] public EventCallback<string> Notify { get; set; }
+    private string? token;
+    private readonly CancellationTokenSource stop = new();
+
+    private async Task Generate()
+    {
+        try
+        {
+            var json = Export();
+            if (OpenBrowser is null)
+            {
+                await JS.InvokeVoidAsync("deadlockAbilityDraft.downloadTextFile", "custom-draft-preset.json", json, "application/json");
+                await Notify.InvokeAsync("Preset download started.");
+            }
+            else
+            {
+                Transfers.Remove(token);
+                token = Transfers.Create(json);
+                OpenBrowser("presets/" + token);
+                await Notify.InvokeAsync("Download your preset in the browser.");
+            }
+        }
+        catch (Exception ex) { await Notify.InvokeAsync(ex.Message); }
+    }
+
+    private async Task Load(InputFileChangeEventArgs args)
+    {
+        try
+        {
+            await using var stream = args.File.OpenReadStream(PresetTransferService.MaxBytes);
+            using var reader = new StreamReader(stream);
+            await Import.InvokeAsync(await reader.ReadToEndAsync());
+        }
+        catch (Exception ex) { await Notify.InvokeAsync(ex.Message); }
+    }
+
+    private async Task LoadInBrowser()
+    {
+        try
+        {
+            Transfers.Remove(token);
+            var pending = token = Transfers.Create();
+            OpenBrowser!("presets/" + pending);
+            await Notify.InvokeAsync("Choose your preset in the browser. It will load here automatically.");
+            _ = AwaitUpload(pending);
+        }
+        catch (Exception ex) { await Notify.InvokeAsync(ex.Message); }
+    }
+    private async Task AwaitUpload(string pending)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+            while (await timer.WaitForNextTickAsync(stop.Token))
+            {
+                if (pending != token) return;
+                var json = Transfers.TakeUpload(pending);
+                if (json is null) continue;
+                token = null;
+                await InvokeAsync(() => Import.InvokeAsync(json));
+                return;
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { if (!stop.IsCancellationRequested) await InvokeAsync(() => Notify.InvokeAsync(ex.Message)); }
+    }
+    public void Dispose() { stop.Cancel(); Transfers.Remove(token); stop.Dispose(); }
+}

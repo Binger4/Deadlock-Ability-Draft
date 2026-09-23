@@ -10,6 +10,8 @@
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 @inject IOptions<DraftTimingOptions> TimingOptions
+@inject IOptions<abilitydraft.Services.InGame.InGameOptions> InGameOptions
+@inject abilitydraft.Services.InGame.InGameRoomAdapter InGameAdapter
 
 <PageTitle>Deadlock Ability Draft Room</PageTitle>
 
@@ -17,14 +19,24 @@
 {
     <main class="page-shell">
         <section class="page-header">
-            <a href="/">Home</a>
+            @if (!GameShell)
+            {
+                <a href="/">Home</a>
+            }
             <p class="eyebrow">Room closed</p>
             <h1>@RoomNotice</h1>
             <p>You can create a new draft or join another room.</p>
-            <div class="home-actions">
-                <a class="primary-link" href="/create">Create room</a>
-                <a class="secondary-link" href="/join">Join room</a>
-            </div>
+            @if (GameShell)
+            {
+                <p>Use CREATE LOBBY or JOIN BY CODE above.</p>
+            }
+            else
+            {
+                <div class="home-actions">
+                    <a class="primary-link" href="/create">Create room</a>
+                    <a class="secondary-link" href="/join">Join room</a>
+                </div>
+            }
         </section>
     </main>
 }
@@ -32,7 +44,10 @@ else if (CurrentRoom is null)
 {
     <main class="page-shell">
         <section class="page-header">
-            <a href="/join">Join another room</a>
+            @if (!GameShell)
+            {
+                <a href="/join">Join another room</a>
+            }
             <p class="eyebrow">Room not found</p>
             <h1>Invalid room code</h1>
             <p>No active room exists for <code>@Code</code>.</p>
@@ -44,7 +59,10 @@ else
     <main class="draft-shell arena-bg">
         <section class="room-topbar compact-topbar">
             <div>
-                <a href="/" @onclick="DisconnectAndGoHome" @onclick:preventDefault="true">Home</a>
+                @if (!GameDisplay)
+                {
+                    <a href="/" @onclick="DisconnectAndGoHome" @onclick:preventDefault="true">Home</a>
+                }
                 <p class="eyebrow">@CurrentRoom.Status</p>
                 <h1>@CurrentRoom.Name</h1>
                 @if (CurrentRoom.Config.DraftMode == DraftMode.Custom)
@@ -52,12 +70,23 @@ else
                     <p>Custom base: <strong>@ModeLabel(CurrentRoom.Config.CustomBaseDraftMode)</strong></p>
                 }
                 <div class="room-share-row">
-                    <button class="copy-chip" title="Copy hidden lobby code" @onclick="CopyRoomCode">
-                        Room <code>@MaskedRoomCode</code>
-                    </button>
-                    <button class="copy-chip" title="Copy invite link" @onclick="CopyInviteLink">
-                        Copy invite link
-                    </button>
+                    @if (InGameOptions.Value.Enabled && CurrentClient is not null && CurrentClient.SteamId64 is null && CurrentRoom.RuntimeResultId is null)
+                    {
+                        <button class="copy-chip" @onclick="CreateInGameLink">Link to Deadworks</button>
+                        @if (!string.IsNullOrEmpty(InGameLink))
+                        {
+                            <small>Private link code (5 minutes): <code>@InGameLink</code></small>
+                        }
+                    }
+                    @if (!GameDisplay)
+                    {
+                        <button class="copy-chip" title="Copy hidden lobby code" @onclick="CopyRoomCode">
+                            Room <code>@MaskedRoomCode</code>
+                        </button>
+                        <button class="copy-chip" title="Copy invite link" @onclick="CopyInviteLink">
+                            Copy invite link
+                        </button>
+                    }
                     @if (!string.IsNullOrWhiteSpace(CopyMessage))
                     {
                         <small>@CopyMessage</small>
@@ -102,7 +131,10 @@ else
             <section class="lobby-grid">
                 <div class="lobby-panel">
                     <h2>Lobby</h2>
-                    <p>@CurrentRoom.DeadlockData.Heroes.Count heroes and @CurrentRoom.DeadlockData.Abilities.Count abilities parsed.</p>
+                    @if (!GameShell)
+                    {
+                        <p>@CurrentRoom.DeadlockData.Heroes.Count heroes and @CurrentRoom.DeadlockData.Abilities.Count abilities parsed.</p>
+                    }
                     <p>Mode: <strong>@ModeLabel(CurrentRoom.Config.DraftMode)</strong></p>
                     @if (CurrentRoom.Config.DraftMode == DraftMode.Custom)
                     {
@@ -118,8 +150,11 @@ else
                     }
                     <p>Chat: <strong>@(CurrentRoom.Config.DisableChat ? "Disabled" : "Enabled")</strong></p>
                     <p>Empty slots: <strong>@(CurrentRoom.Config.AllowEmptySlotsAsBots ? "Bots enabled" : "Removed at start")</strong></p>
-                    <p>Icons: <strong>@IconCount</strong> mapped</p>
-                    <p>Your session: <strong>@CurrentClientLabel</strong></p>
+                    @if (!GameShell)
+                    {
+                        <p>Icons: <strong>@IconCount</strong> mapped</p>
+                        <p>Your session: <strong>@CurrentClientLabel</strong></p>
+                    }
                     @if (CurrentClient is not null && !IsSpectator)
                     {
                         <div class="lobby-actions">
@@ -233,7 +268,7 @@ else
                         @if (CurrentRoom.Status == DraftRoomStatus.Completed)
                         {
                             <span>Draft complete</span>
-                            <strong>Generate the mod files below</strong>
+                            <strong>@(GameDisplay ? CurrentRoom.IsPublicQueue ? "Draft complete. PLAY DRAFT unlocks after 15 seconds." : IsHost ? "Your draft is ready. Use PLAY DRAFT above." : "Your draft is ready. Waiting for the host to start the match." : "Generate the mod files below")</strong>
                         }
                         else
                         {
@@ -337,7 +372,7 @@ else
                             </article>
                         }
                     </div>
-                    @if (IsHost)
+                    @if (IsHost && !CurrentRoom.InGameManaged)
                     {
                         <button class="primary" disabled="@IsGeneratingFiles" @onclick="GenerateZip">
                             @(IsGeneratingFiles ? "Generating..." : "Generate files")
@@ -461,6 +496,10 @@ else
 @code {
     [Parameter] public string Code { get; set; } = string.Empty;
     [SupplyParameterFromQuery(Name = "playerId")] public string? PlayerId { get; set; }
+    // Presentation only; this query parameter never grants game identity or authorization.
+    [SupplyParameterFromQuery(Name = "inGame")] public bool InGameDisplay { get; set; }
+    private bool GameShell => InGameDisplay && InGameOptions.Value.Enabled;
+    private bool GameDisplay => GameShell && CurrentClient?.SteamId64 is not null;
 
     private DraftRoom? CurrentRoom;
     private string Message = string.Empty;
@@ -484,6 +523,8 @@ else
     private int LobbyMaxPlayers = 12;
     private bool LobbyFlexibleUltimates;
     private bool LobbyBlindDraft;
+    private string? InGameLink;
+    private void CreateInGameLink() => Try(() => InGameLink = InGameAdapter.CreateLinkCode(Code, PlayerId ?? string.Empty));
     private bool LobbyFullRandom;
     private int LobbyPreparationSeconds;
     private int LobbyPickSeconds;
@@ -517,7 +558,7 @@ else
 
     private DraftPlayerSlot? CurrentTurnPlayer => CurrentRoom?.CurrentTurn is null ? null : CurrentRoom.Players.FirstOrDefault(player => player.SlotNumber == CurrentRoom.CurrentTurn.SlotNumber);
     private DraftClientSession? CurrentClient => CurrentRoom?.Clients.FirstOrDefault(player => player.PlayerId == PlayerId);
-    private bool IsHost => CurrentClient?.IsHost == true;
+    private bool IsHost => CurrentClient?.IsHost == true && CurrentRoom?.IsPublicQueue != true;
     private bool IsSpectator => CurrentClient?.Team == DeadlockTeam.Spectator;
     private bool CanPick => CurrentRoom is not null && RoomService.CanPlayerPickCurrentTurn(CurrentRoom, PlayerId);
     private bool IsLocalCurrentTurn => CurrentTurnPlayer is not null &&
@@ -592,7 +633,7 @@ else
         if (CurrentRoom?.Status is DraftRoomStatus.Drafting or DraftRoomStatus.Completed &&
             Nav.Uri.Contains("/lobby", StringComparison.OrdinalIgnoreCase))
         {
-            Nav.NavigateTo($"/room/{CurrentRoom.Code}/draft?playerId={PlayerId}");
+            Nav.NavigateTo($"/room/{CurrentRoom.Code}/draft?playerId={PlayerId}" + (GameDisplay ? "&inGame=true" : ""));
         }
     }
 
@@ -645,6 +686,8 @@ else
 
     private bool ShouldPlaySound(DraftSoundEvent sound)
     {
+        if (GameDisplay && string.Equals(sound.SoundPath, "/sounds/timer-warning.mp3", StringComparison.Ordinal))
+            return false;
         if (sound.CreatedUtc < SoundListenStartedUtc.AddSeconds(-3))
         {
             return false;
@@ -766,7 +809,7 @@ else
             builder.AddAttribute(sequence++, "class", client.IsReady ? "ready-text" : "not-ready-text");
             builder.AddContent(sequence++, client.IsReady ? "Ready" : "Not Ready");
             builder.CloseElement();
-            if (client.IsHost)
+            if (client.IsHost && CurrentRoom?.IsPublicQueue != true)
             {
                 builder.OpenElement(sequence++, "small");
                 builder.AddContent(sequence++, "Host");
@@ -830,13 +873,8 @@ else
                 <strong>Custom draft rules</strong>
                 <span>These settings apply only to this room.</span>
             </div>
-            <div class="preset-actions">
-                <button type="button" @onclick="GenerateLobbyPreset">Generate preset</button>
-                <label class="preset-upload">
-                    Load preset
-                    <InputFile OnChange="LoadLobbyPreset" accept="application/json,.json" />
-                </label>
-            </div>
+            <CustomPresetActions Export="ExportLobbyPreset" Import="LoadLobbyPreset" Notify="SetPresetMessage"
+                OpenBrowser="@(GameShell ? OpenPresetBrowser : null)" />
         </div>
         @if (!string.IsNullOrWhiteSpace(PresetMessage))
         {
@@ -1652,7 +1690,7 @@ else
             if (CurrentRoom is not null)
             {
                 SuppressDisconnectOnDispose = true;
-                Nav.NavigateTo($"/room/{CurrentRoom.Code}/draft?playerId={PlayerId}");
+                Nav.NavigateTo($"/room/{CurrentRoom.Code}/draft?playerId={PlayerId}" + (GameDisplay ? "&inGame=true" : ""));
             }
         });
     }
@@ -1765,26 +1803,15 @@ else
 
     private void SaveLobbySettings() => Try(() => RoomService.UpdateRoomConfig(Code, PlayerId ?? string.Empty, BuildLobbyConfig()));
 
-    private async Task GenerateLobbyPreset()
+    private string ExportLobbyPreset()
     {
         if (!IsHost || LobbyDraftMode != DraftMode.Custom || CurrentRoom?.Status != DraftRoomStatus.Lobby)
-        {
-            return;
-        }
-
-        try
-        {
-            var json = CustomDraftPresetService.Export(BuildLobbyConfig());
-            await JS.InvokeVoidAsync("deadlockAbilityDraft.downloadTextFile", "custom-draft-preset.json", json, "application/json");
-            SetPresetMessage("Preset generated.");
-        }
-        catch (Exception ex)
-        {
-            SetPresetMessage(ex.Message);
-        }
+            throw new InvalidOperationException("Presets are only available to the Custom lobby host.");
+        return CustomDraftPresetService.Export(BuildLobbyConfig());
     }
+    private void OpenPresetBrowser(string path) => InGameAdapter.OpenPresetLink(path, code: Code, playerId: PlayerId);
 
-    private async Task LoadLobbyPreset(InputFileChangeEventArgs args)
+    private void LoadLobbyPreset(string json)
     {
         if (!IsHost || CurrentRoom is null)
         {
@@ -1799,9 +1826,6 @@ else
 
         try
         {
-            await using var stream = args.File.OpenReadStream(128 * 1024);
-            using var reader = new StreamReader(stream);
-            var json = await reader.ReadToEndAsync();
             var result = CustomDraftPresetService.Import(json, CurrentRoom.DeadlockData, CurrentRoom.Bans, TimingOptions.Value);
             RoomService.UpdateRoomConfig(Code, PlayerId ?? string.Empty, result.Config);
             CurrentRoom = RoomService.GetRoom(Code);

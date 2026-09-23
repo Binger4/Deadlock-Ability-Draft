@@ -1,0 +1,12 @@
+# Copy Integration/Addon/panorama into a dedicated CSDK content addon first.
+# Replace these paths with your local CSDK paths. Use only the dedicated static addon directory.
+[[step]]
+[step.compile]
+resource_compiler_path = 'D:\csdk\game\bin_tools\win64\resourcecompiler.exe'
+addon_content_directory = 'D:\csdk\content\citadel_addons\ability_draft_base'
+
+[[step]]
+[step.pack]
+input_directory = 'D:\csdk\game\citadel_addons\ability_draft_base'
+output_path = 'D:\csdk\ability_draft_base.vpk'
+exclude = ['cache_*.soc', 'tools_thumbnail_cache.bin', 'gameinfo.gi']

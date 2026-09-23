@@ -1,0 +1,64 @@
+@inject NavigationManager Nav
+@using Microsoft.AspNetCore.WebUtilities
+
+@page "/site-closed"
+
+<PageTitle>Site temporarily closed</PageTitle>
+
+<main class="page-shell site-closed-shell">
+    <section class="form-panel narrow site-closed-panel">
+        <p class="eyebrow">Maintenance</p>
+        <h1>Site temporarily closed</h1>
+        <p>The Deadlock Ability Draft site is temporarily closed for updates.</p>
+        <p>You can get information and updates from the official Discord server below.</p>
+
+        <div class="maintenance-divider"></div>
+
+        <h2>Developer access</h2>
+        <p>Enter the developer password to access the site while it is closed.</p>
+        <form method="post" action="/site-access/submit" class="login-form">
+            <input type="hidden" name="returnUrl" value="@ReturnUrl" />
+            <label>
+                <span>Password</span>
+                <input name="password" type="password" autocomplete="current-password" autofocus />
+            </label>
+            <button class="primary" type="submit">Enter site</button>
+        </form>
+
+        @if (Failed)
+        {
+            <p class="message danger-message">Incorrect developer password.</p>
+        }
+    </section>
+</main>
+
+<SiteFooter />
+
+@code {
+    private IReadOnlyDictionary<string, Microsoft.Extensions.Primitives.StringValues> Query =>
+        QueryHelpers.ParseQuery(new Uri(Nav.Uri).Query);
+
+    private bool Failed => Query.ContainsKey("site-access-failed") || Query.ContainsKey("failed");
+
+    private string ReturnUrl
+    {
+        get
+        {
+            if (Query.TryGetValue("returnUrl", out var requested) && IsSafeReturnUrl(requested.ToString()))
+            {
+                return requested.ToString();
+            }
+
+            var relative = Nav.ToBaseRelativePath(Nav.Uri).Split('?', '#')[0];
+            var current = string.IsNullOrWhiteSpace(relative) ? "/" : "/" + relative;
+            return IsSafeReturnUrl(current) && !current.Equals("/site-closed", StringComparison.OrdinalIgnoreCase)
+                ? current
+                : "/";
+        }
+    }
+
+    private static bool IsSafeReturnUrl(string value) =>
+        value.StartsWith("/", StringComparison.Ordinal) &&
+        !value.StartsWith("//", StringComparison.Ordinal) &&
+        !value.StartsWith("/\\", StringComparison.Ordinal);
+}

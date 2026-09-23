@@ -1,0 +1,43 @@
+.ADRoot { width: 100%; height: 100%; font-family: Arial; color: #e9e5d9; }
+.Entry { horizontal-align: right; vertical-align: top; margin-top: 110px; margin-right: 32px; background-color: #263441ee; border: 1px solid #d1ac64; padding: 12px 22px; }
+.Screen { width: 96%; height: 93%; horizontal-align: center; vertical-align: center; padding: 20px; background-color: #10171ff8; border: 1px solid #596272; flow-children: down; }
+.Topbar { width: 100%; flow-children: right; margin-bottom: 8px; }
+.Title { flow-children: down; width: 330px; }
+.Eyebrow { color: #bfa467; font-size: 13px; letter-spacing: 3px; }
+.Heading { font-size: 32px; font-weight: bold; }
+.RoomTitle { width: fill-parent-flow(1); vertical-align: center; font-size: 22px; }
+.Timer { font-size: 36px; color: #dfbf75; width: 90px; vertical-align: center; }
+.Status { width: 100%; height: 26px; color: #adb9c8; font-size: 15px; }
+.Row { width: 100%; flow-children: right; margin-bottom: 7px; }
+Button { padding: 7px 11px; margin-right: 5px; border: 1px solid #47596b; background-color: #22303e; vertical-align: center; }
+Button Label { font-size: 13px; color: #ebe6d8; }
+Button:hover { background-color: #3a4e63; border: 1px solid #d3b571; }
+Button:disabled { opacity: 0.35; }
+.Primary { background-color: #655536; border: 1px solid #c9a45a; }
+TextEntry { width: 200px; height: 34px; margin-right: 6px; background-color: #0b1118; border: 1px solid #485464; color: #f0ede3; font-size: 16px; padding: 5px; }
+#LinkCode { width: 340px; }
+.Body { width: 100%; height: fill-parent-flow(1); flow-children: right; }
+.DraftColumn { width: fill-parent-flow(1); height: 100%; flow-children: down; margin-right: 16px; }
+.SideColumn { width: 430px; height: 100%; flow-children: down; }
+.SectionTitle { color: #acb6c2; font-size: 13px; letter-spacing: 1px; margin-top: 8px; margin-bottom: 5px; }
+.Cards { width: 100%; flow-children: right-wrap; overflow: squish scroll; }
+.Heroes { height: 155px; }.Abilities { height: fill-parent-flow(1); }.Ultimates { height: 155px; }
+.Card { width: 112px; height: 122px; padding: 5px; margin: 0px 5px 5px 0px; flow-children: down; border: 1px solid #364858; background-color: #1c2834; }
+.Card Image { width: 64px; height: 64px; horizontal-align: center; }
+.Card Label { width: 100%; text-align: center; font-size: 12px; height: 32px; white-space: normal; }
+.Card .Mini { width: 18px; height: 18px; horizontal-align: right; }
+.Card.Picked { opacity: 0.35; }.Card.Available { border: 2px solid #d0b16a; }
+.Card.Hidden { background-color: #343240; }
+.Turns { width: 100%; height: 42px; flow-children: right; overflow: scroll squish; }
+.Turn { padding: 8px; margin-right: 4px; background-color: #263440; font-size: 13px; }
+.Current { border: 2px solid #e2c381; }
+.Players { width: 100%; height: fill-parent-flow(1); flow-children: down; overflow: squish scroll; }
+.Player { width: 100%; padding: 7px; margin-bottom: 5px; flow-children: down; background-color: #1c2834; border-left: 3px solid #697383; }
+.HiddenKing { border-left: 3px solid #e3b954; }.Archmother { border-left: 3px solid #749bdd; }
+.Player Label { font-size: 14px; }.Player .Loadout { flow-children: right; width: 100%; }
+.Loadout Button { padding: 3px; width: 70px; height: 48px; }.Loadout Image { width: 36px; height: 36px; }
+.Player .PlayerHero { width: 24px; height: 24px; margin-right: 8px; }
+.Chat { width: 100%; height: 180px; flow-children: down; overflow: squish scroll; background-color: #0c131b; padding: 6px; }
+.Chat Label { width: 100%; font-size: 14px; white-space: normal; margin-bottom: 4px; }
+#ChatInput { width: fill-parent-flow(1); }
+#Recommendation { background-color: #273847; padding: 8px; }

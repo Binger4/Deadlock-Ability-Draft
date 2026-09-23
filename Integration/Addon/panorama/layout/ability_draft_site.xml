@@ -1,0 +1,59 @@
+<root>
+    <styles>
+        <include src="s2r://panorama/styles/citadel_base_styles.vcss_c" />
+        <include src="file://{resources}/styles/ability_draft_site.css" />
+    </styles>
+    <scripts>
+        <include src="s2r://panorama/scripts/dw_addon.js" />
+        <include src="file://{resources}/scripts/ability_draft_waiting_status.js" />
+        <include src="file://{resources}/scripts/ability_draft_site_config.js" />
+        <include src="file://{resources}/scripts/ability_draft_assets.js" />
+        <include src="file://{resources}/scripts/ability_draft_match.js" />
+        <include src="file://{resources}/scripts/ability_draft_site.js" />
+    </scripts>
+    <Panel hittest="false" style="width: 100%; height: 100%;">
+        <Panel id="SiteScreen" hittest="true" canfocus="true">
+            <Panel id="DraftHeader">
+                <Panel id="DraftHeading"><Label id="EntryKind" class="Eyebrow" text="ABILITY DRAFT" /><Label class="DraftTitle" text="ABILITY DRAFT" /></Panel>
+                <Label id="RoomBadge" />
+                <Button id="CopyCode" class="ADButton Quiet"><Label text="COPY" /></Button>
+                <Button id="ToggleCode" class="ADButton Quiet"><Label id="ToggleCodeLabel" text="SHOW" /></Button>
+                <Button id="CloseSite" class="ADButton Quiet"><Label id="CloseSiteLabel" text="CLOSE" /></Button>
+            </Panel>
+            <Panel id="DraftToolbar">
+                <Button id="CreateLobby" class="ADButton Primary"><Label text="CREATE LOBBY" /></Button>
+                <Button id="JoinLobby" class="ADButton"><Label text="JOIN BY CODE" /></Button>
+                <Button id="PublicQueue" class="ADButton"><Label text="FIND PUBLIC MATCH" /></Button>
+                <Button id="FinalizeResult" class="ADButton Primary"><Label text="LOCK DRAFT FOR MATCH" /></Button>
+                <Button id="PlayDraft" class="ADButton Primary"><Label id="PlayDraftLabel" text="PLAY DRAFT" /><Label id="PlayDraftCountdown" /></Button>
+                <Button id="ResumeMatch" class="ADButton Primary"><Label id="ResumeMatchLabel" text="RETURN TO MATCH" /></Button>
+                <Button id="AbandonMatch" class="ADButton Danger"><Label id="AbandonLabel" text="ABANDON MATCH" /></Button>
+                <Button id="ApplySelf" class="ADButton"><Label text="PREPARE MY HERO" /></Button>
+                <Button id="BeginMatch" class="ADButton Primary"><Label text="START MATCH" /></Button>
+            </Panel>
+            <Panel id="DraftContent">
+                <Panel id="MatchScreen">
+                    <Panel id="MatchSummary"><Label id="MatchPhase" /></Panel>
+                    <Panel id="MatchTeams">
+                        <Panel class="MatchTeam HiddenKing"><Label class="TeamTitle" text="THE HIDDEN KING" /><Panel id="MatchHiddenKing" class="TeamPlayers" /></Panel>
+                        <Panel class="MatchTeam Archmother"><Label class="TeamTitle" text="THE ARCHMOTHER" /><Panel id="MatchArchmother" class="TeamPlayers" /></Panel>
+                    </Panel>
+                </Panel>
+                <Panel id="WaitingScreen">
+                    <Panel id="WaitingCard">
+                        <Label class="Eyebrow" text="ABILITY DRAFT" />
+                        <Label id="WaitingTitle" text="CONNECTING" />
+                        <Label id="QueueCount" text="" />
+                        <Label id="WaitingHint" text="Connecting…" />
+                        <Button id="CancelQueue" class="ADButton"><Label text="CANCEL SEARCH" /></Button>
+                    </Panel>
+                </Panel>
+                <CitadelHTMLPanel id="DraftWebsite" acceptsinput="true" acceptsfocus="true" canfocus="true" hittest="true" />
+            </Panel>
+            <Label id="siteStatus" text="Connecting…" />
+
+        </Panel>
+        <Button id="OpenSite" class="ADButton" hittest="true"><Label id="OpenSiteLabel" text="ABILITY DRAFT" /></Button>
+        <Panel id="AbilityDraftTooltipHost" hittest="false" hittestchildren="false" />
+    </Panel>
+</root>

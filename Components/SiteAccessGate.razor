@@ -1,0 +1,29 @@
+@using Microsoft.AspNetCore.Components.Authorization
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject abilitydraft.Services.SiteAccessService SiteAccess
+
+@if (!SiteAccess.IsClosed || CanBypass)
+{
+    @ChildContent
+}
+else
+{
+    <SiteClosed />
+}
+
+@code {
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
+
+    private bool CanBypass;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var authenticationState = AuthenticationStateTask is not null
+            ? await AuthenticationStateTask
+            : await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        CanBypass = SiteAccess.CanBypass(authenticationState.User);
+    }
+}

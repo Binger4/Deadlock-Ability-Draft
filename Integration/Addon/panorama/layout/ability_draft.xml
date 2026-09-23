@@ -1,0 +1,62 @@
+<root>
+    <styles><include src="file://{resources}/styles/ability_draft.css" /></styles>
+    <scripts>
+        <include src="s2r://panorama/scripts/dw_addon.js" />
+        <include src="file://{resources}/scripts/ability_draft_assets.js" />
+        <include src="file://{resources}/scripts/ability_draft.js" />
+    </scripts>
+    <Panel class="ADRoot" hittest="false">
+        <Button id="Entry" class="Entry" hittest="true"><Label text="ABILITY DRAFT" /></Button>
+        <Panel id="Screen" class="Screen" hittest="true" visible="false">
+            <Panel class="Topbar">
+                <Panel class="Title"><Label class="Eyebrow" text="DEADLOCK" /><Label class="Heading" text="ABILITY DRAFT" /></Panel>
+                <Label id="RoomTitle" class="RoomTitle" text="Create or join a room" />
+                <Label id="Timer" class="Timer" text="—" />
+                <Button id="Close"><Label text="CLOSE" /></Button>
+            </Panel>
+            <Label id="status" class="Status" text="Waiting for Deadworks…" />
+            <Label id="exportStatus" class="Status" text="" />
+            <Panel id="EntryForm" class="Row">
+                <TextEntry id="Name" placeholder="Display name" maxchars="80" />
+                <TextEntry id="RoomCode" placeholder="Room code" maxchars="12" />
+                <Button id="Team"><Label id="TeamLabel" text="The Hidden King" /></Button>
+                <Button id="Mode"><Label id="ModeLabel" text="FreePick" /></Button>
+                <Button id="Create" class="Primary"><Label text="CREATE ROOM" /></Button>
+                <Button id="Join"><Label text="JOIN" /></Button>
+                <Button id="Spectate"><Label text="SPECTATE" /></Button>
+            </Panel>
+            <Panel id="LinkForm" class="Row">
+                <TextEntry id="LinkCode" placeholder="Private website link code" maxchars="32" />
+                <Button id="Link"><Label text="LINK WEBSITE PARTICIPANT" /></Button>
+                <Button id="Reconnect"><Label text="RECONNECT" /></Button>
+            </Panel>
+            <Panel id="RoomActions" class="Row" visible="false">
+                <Button id="Ready" class="Primary"><Label id="ReadyLabel" text="READY" /></Button>
+                <Button id="ChangeTeam"><Label text="SWITCH TEAM" /></Button>
+                <Button id="Start"><Label text="START DRAFT" /></Button>
+                <Button id="Export" class="Primary"><Label text="GENERATE VPK" /></Button>
+                <Button id="Finalize"><Label text="FINALIZE SLOT ORDER" /></Button>
+                <Button id="ApplySelf"><Label text="TEST MY LOADOUT" /></Button>
+                <Button id="ApplyAll"><Label text="PREPARE ALL PLAYERS" /></Button>
+                <Button id="Leave"><Label text="LEAVE ROOM" /></Button>
+            </Panel>
+            <Panel class="Body">
+                <Panel class="DraftColumn">
+                    <Label class="SectionTitle" text="PICK ORDER" /><Panel id="Turns" class="Turns" />
+                    <Label class="SectionTitle" text="HERO POOL" /><Panel id="Heroes" class="Cards Heroes" />
+                    <Label id="AbilityTitle" class="SectionTitle" text="ABILITIES" /><Panel id="Abilities" class="Cards Abilities" />
+                    <Label class="SectionTitle" text="ULTIMATES" /><Panel id="Ultimates" class="Cards Ultimates" />
+                </Panel>
+                <Panel class="SideColumn">
+                    <Label class="SectionTitle" text="PLAYERS &amp; SPECTATORS" /><Panel id="Players" class="Players" />
+                    <Label class="SectionTitle" text="ROOM CHAT · right-click a card to recommend" />
+                    <Panel id="Chat" class="Chat" />
+                    <Panel class="Row"><Button id="ChatScope"><Label id="ChatScopeLabel" text="ALLIES" /></Button><TextEntry id="ChatInput" maxchars="300" placeholder="Message" /><Button id="Send"><Label text="SEND" /></Button></Panel>
+                </Panel>
+            </Panel>
+            <Panel id="Recommendation" class="Row" visible="false">
+                <Label id="RecommendationName" /><Button id="Want"><Label text="WANT THIS" /></Button><Button id="Recommend"><Label text="RECOMMEND" /></Button>
+            </Panel>
+        </Panel>
+    </Panel>
+</root>

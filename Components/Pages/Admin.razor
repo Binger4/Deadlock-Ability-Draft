@@ -1,6 +1,6 @@
 @page "/admin"
 @rendermode InteractiveServer
-@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Roles = "Admin")]
 @using abilitydraft.Models
 @using abilitydraft.Services
 @using Microsoft.Extensions.Options
@@ -8,8 +8,11 @@
 @inject DraftRoomService RoomService
 @inject DeadPackerService DeadPackerService
 @inject DraftStatsService DraftStatsService
+@inject abilitydraft.Services.InGame.MatchWorkerCoordinator MatchWorkers
 @inject DeadlockVDataUpdateService VDataUpdateService
 @inject IOptions<DeadlockDataOptions> Options
+@inject SiteAccessService SiteAccess
+@inject ProjectLinksService ProjectLinks
 @inject NavigationManager Nav
 
 <PageTitle>Deadlock Data Admin</PageTitle>
@@ -21,6 +24,61 @@
         <p class="eyebrow">Admin</p>
         <h1>Server data</h1>
         <p>Reload Deadlock files, edit bans, regenerate icon naming lists, and set website-only display names.</p>
+    </section>
+
+    <section class="form-panel admin-wide">
+        <div class="admin-editor-header">
+            <div>
+                <p class="eyebrow">Public links</p>
+                <h2>Download and support links</h2>
+                <p>These values are saved locally in <code>Data/project-links.json</code>, which is excluded from the repository.</p>
+            </div>
+        </div>
+        <label>
+            <span>GameBanana download URL</span>
+            <input type="url" placeholder="https://gamebanana.com/..." @bind="GameBananaUrlInput" />
+        </label>
+        <label>
+            <span>Support heading</span>
+            <input @bind="SupportHeadingInput" />
+        </label>
+        <div class="path-grid">
+            <label><span>Support link 1 name</span><input @bind="SupportLabel1" /></label>
+            <label><span>Support link 1 URL</span><input type="url" @bind="SupportUrl1" /></label>
+            <label><span>Support link 2 name</span><input @bind="SupportLabel2" /></label>
+            <label><span>Support link 2 URL</span><input type="url" @bind="SupportUrl2" /></label>
+        </div>
+        <div class="admin-actions">
+            <button class="primary" @onclick="SaveProjectLinks">Save public links</button>
+        </div>
+    </section>
+
+    <section class="form-panel admin-wide">
+        <div class="admin-editor-header">
+            <div>
+                <p class="eyebrow">Website access</p>
+                <h2>Maintenance mode</h2>
+                <p>Close every public page while you update the site. Admins and people with the developer password can still enter.</p>
+            </div>
+            <strong class="@(SiteAccessStatus.IsClosed ? "not-ready-text" : "ready-text")">
+                @(SiteAccessStatus.IsClosed ? "Closed" : "Open")
+            </strong>
+        </div>
+
+        <label class="toggle">
+            <input type="checkbox" @bind="SiteClosed" />
+            <span>Close the site for visitors</span>
+        </label>
+
+        <label>
+            <span>Developer password</span>
+            <input type="password" autocomplete="new-password" placeholder="@(SiteAccessStatus.HasDeveloperPassword ? "Leave blank to keep the current password" : "Set a password before closing")" @bind="DeveloperPassword" />
+        </label>
+        <p class="field-note">The password is stored as a hash in <code>Data/site-access.json</code>. Every new closure invalidates previous developer access sessions.</p>
+
+        <div class="admin-actions">
+            <button class="primary" @onclick="SaveSiteAccess">Save website access</button>
+        </div>
     </section>
 
     <section class="form-panel admin-wide">
@@ -133,8 +191,8 @@
                             {
                                 var expanded = ExpandedActiveDrafts.Contains(draft.DraftCode);
                                 <tr>
-                                    <td>@draft.HostName</td>
-                                    <td><code>@draft.DraftCode</code></td>
+                                    <td>@HostDisplay(draft.Source, draft.HostName)</td>
+                                    <td><code>@draft.DraftCode</code> @SourceBadge(draft.Source)</td>
                                     <td>@draft.PlayerCount</td>
                                     <td>@draft.SpectatorCount</td>
                                     <td>@draft.DraftMode</td>
@@ -184,9 +242,52 @@
             </details>
 
             <details class="stats-section">
+                <summary><strong>Active matches</strong><span>@ActiveMatchStats.Count servers</span></summary>
+                @if (ActiveMatchStats.Count == 0)
+                {
+                    <p class="message">No matches are running.</p>
+                }
+                else
+                {
+                    <table class="stats-table">
+                        <thead><tr><th>Host</th><th>Code</th><th>Players</th><th>Spectators</th><th>Draft mode</th><th>Bots enabled</th><th>Status</th><th>Started</th></tr></thead>
+                        <tbody>
+                            @foreach (var match in ActiveMatchStats)
+                            {
+                                <tr>
+                                    <td>@HostDisplay(match.Source, match.Host)</td>
+                                    <td><code>@match.Code</code> @SourceBadge(match.Source)</td>
+                                    <td>@match.Connected/@match.Required connected · @match.Players.Length seats</td>
+                                    <td>@match.Spectators.Length</td>
+                                    <td>@match.Mode</td>
+                                    <td><span class="@BoolValueClass(match.Bots)">@FormatBool(match.Bots)</span></td>
+                                    <td>@match.State</td><td>@FormatLocalTime(match.StartedUtc)</td>
+                                </tr>
+                                <tr class="stats-participants-row"><td colspan="8">
+                                    <details><summary>Players and loadouts</summary>
+                                        <div class="stats-match-players">
+                                            @foreach (var player in match.Players)
+                                            {
+                                                <div><strong>@player.Name</strong> · @(player.Team == "HiddenKing" ? "The Hidden King" : "The Archmother")
+                                                    @if (player.Bot) { <em>bot</em> }
+                                                    @if (player.Abandoned) { <em>abandoned</em> }
+                                                    <div>@player.Hero · @string.Join(" · ", player.Abilities)</div>
+                                                </div>
+                                            }
+                                        </div>
+                                        <strong>Spectators</strong>@SpectatorList(match.Spectators)
+                                    </details>
+                                </td></tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </details>
+
+            <details class="stats-section">
                 <summary>
                     <strong>Completed drafts</strong>
-                    <span>@CompletedDraftStats.Count total</span>
+                    <span>@CompletedPage.Total total</span>
                 </summary>
                 @if (!DraftStatsService.SaveCompletedHistoryEnabled)
                 {
@@ -198,6 +299,13 @@
                 }
                 else
                 {
+                    <nav class="stats-pagination" aria-label="Completed draft pages">
+                        <button disabled="@(CompletedPage.Page <= 1)" @onclick="() => ChangeCompletedPage(1)">First</button>
+                        <button disabled="@(CompletedPage.Page <= 1)" @onclick="() => ChangeCompletedPage(CompletedPage.Page - 1)">Previous</button>
+                        <span>Page @CompletedPage.Page of @CompletedPage.Pages · up to 100 drafts per page</span>
+                        <button disabled="@(CompletedPage.Page >= CompletedPage.Pages)" @onclick="() => ChangeCompletedPage(CompletedPage.Page + 1)">Next</button>
+                        <button disabled="@(CompletedPage.Page >= CompletedPage.Pages)" @onclick="() => ChangeCompletedPage(CompletedPage.Pages)">Last</button>
+                    </nav>
                     <table class="stats-table">
                         <thead>
                             <tr>
@@ -216,8 +324,8 @@
                                 var draftKey = CompletedDraftKey(draft);
                                 var expanded = ExpandedCompletedDrafts.Contains(draftKey);
                                 <tr>
-                                    <td>@draft.HostName</td>
-                                    <td><code>@draft.DraftCode</code></td>
+                                    <td>@HostDisplay(draft.Source, draft.HostName)</td>
+                                    <td><code>@draft.DraftCode</code> @SourceBadge(draft.Source)</td>
                                     <td>@draft.PlayerCount</td>
                                     <td>@MissingFallback(draft.DraftMode)</td>
                                     <td><span class="@OptionalBoolValueClass(draft.AllowEmptySlotsAsBots)">@FormatOptionalBool(draft.AllowEmptySlotsAsBots)</span></td>
@@ -491,6 +599,30 @@
             </div>
         </section>
     }
+    <section class="form-panel admin-wide">
+        <div class="admin-editor-header">
+            <div>
+                <p class="eyebrow">Downloads</p>
+                <h2>Mod download filename</h2>
+                <p>Choose the number in the downloaded VPK's filename. The source file in <code>dist</code> keeps its name.</p>
+            </div>
+        </div>
+        <label>
+            <span>VPK number (1–999)</span>
+            <input type="number" min="1" max="999" step="1" @bind="ModPakNumberInput" @bind:event="oninput" />
+        </label>
+        @if (ModPakNumberInput is >= 1 and <= 999)
+        {
+            <p class="field-note">Download filename: <code>pak@(ModPakNumberInput.Value.ToString("D2", System.Globalization.CultureInfo.InvariantCulture))_dir.vpk</code></p>
+        }
+        <div class="admin-actions">
+            <button class="primary" @onclick="SaveModDownload">Save download filename</button>
+        </div>
+        @if (!string.IsNullOrWhiteSpace(ModDownloadMessage))
+        {
+            <p class="message" role="status">@ModDownloadMessage</p>
+        }
+    </section>
 </main>
 
 @code {
@@ -509,17 +641,91 @@
     private Dictionary<string, string> HeroOverrides = new(StringComparer.Ordinal);
     private Dictionary<string, string> AbilityOverrides = new(StringComparer.Ordinal);
     private string GameRootPathInput = string.Empty;
+    private bool SiteClosed;
+    private string DeveloperPassword = string.Empty;
+    private string GameBananaUrlInput = string.Empty;
+    private int? ModPakNumberInput;
+    private string ModDownloadMessage = string.Empty;
+    private string SupportHeadingInput = "Support Project";
+    private string SupportLabel1 = string.Empty;
+    private string SupportUrl1 = string.Empty;
+    private string SupportLabel2 = string.Empty;
+    private string SupportUrl2 = string.Empty;
     private HashSet<string> ExpandedActiveDrafts = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string> ExpandedCompletedDrafts = new(StringComparer.OrdinalIgnoreCase);
-    private IReadOnlyList<CompletedDraftStatsRecord> CompletedDraftStats = [];
+    private CompletedDraftStatsPage CompletedPage = new([], 1, 0, 1);
+    private IReadOnlyList<CompletedDraftStatsRecord> CompletedDraftStats => CompletedPage.Items;
+    private IReadOnlyList<abilitydraft.Services.InGame.ActiveMatchStatsRecord> ActiveMatchStats = [];
     private DeadPackerStatus PackingStatus => DeadPackerService.GetStatus();
     private IReadOnlyList<ActiveDraftStatsRecord> ActiveDraftStats => RoomService.GetActiveDraftStats();
     private DeadlockVDataUpdateStatus VDataStatus => VDataUpdateService.GetStatus();
+    private SiteAccessStatus SiteAccessStatus => SiteAccess.GetStatus();
 
     protected override void OnInitialized()
     {
+        SiteClosed = SiteAccessStatus.IsClosed;
+        LoadProjectLinks();
         LoadCompletedStats();
         LoadEditorState();
+    }
+
+    private void LoadProjectLinks()
+    {
+        var settings = ProjectLinks.GetSettings();
+        ModPakNumberInput = settings.ModPakNumber;
+        GameBananaUrlInput = settings.GameBananaUrl;
+        SupportHeadingInput = settings.SupportHeading;
+        var links = settings.SupportLinks;
+        SupportLabel1 = links.ElementAtOrDefault(0)?.Label ?? string.Empty;
+        SupportUrl1 = links.ElementAtOrDefault(0)?.Url ?? string.Empty;
+        SupportLabel2 = links.ElementAtOrDefault(1)?.Label ?? string.Empty;
+        SupportUrl2 = links.ElementAtOrDefault(1)?.Url ?? string.Empty;
+    }
+
+    private void SaveProjectLinks()
+    {
+        ProjectLinks.Save(GameBananaUrlInput, SupportHeadingInput,
+        [new ProjectLink(SupportLabel1, SupportUrl1), new ProjectLink(SupportLabel2, SupportUrl2)]);
+        Message = "Public links saved.";
+    }
+
+    private void SaveModDownload()
+    {
+        if (ModPakNumberInput is not (>= 1 and <= 999))
+        {
+            ModDownloadMessage = "Enter a VPK number between 1 and 999.";
+            return;
+        }
+
+        try
+        {
+            ProjectLinks.SaveModPakNumber(ModPakNumberInput.Value);
+            ModDownloadMessage = $"Saved. Downloads will use {ProjectLinks.ModDownloadFileName}.";
+        }
+        catch (IOException)
+        {
+            ModDownloadMessage = "Could not save the download filename. Check that the Data folder is writable.";
+        }
+        catch (UnauthorizedAccessException)
+        {
+            ModDownloadMessage = "Could not save the download filename. Check that the Data folder is writable.";
+        }
+    }
+
+    private void SaveSiteAccess()
+    {
+        try
+        {
+            var status = SiteAccess.Save(SiteClosed, DeveloperPassword);
+            DeveloperPassword = string.Empty;
+            Message = status.IsClosed
+                ? "The website is now closed for public visitors."
+                : "The website is open again.";
+        }
+        catch (Exception ex)
+        {
+            Message = ex.Message;
+        }
     }
 
     private void Reload()
@@ -638,8 +844,26 @@
 
     private void LoadCompletedStats()
     {
-        CompletedDraftStats = DraftStatsService.GetCompletedDrafts();
+        CompletedPage = DraftStatsService.GetCompletedDraftPage(CompletedPage.Page);
+        ActiveMatchStats = MatchWorkers.GetActiveMatchStats();
     }
+
+    private void ChangeCompletedPage(int page)
+    {
+        CompletedPage = DraftStatsService.GetCompletedDraftPage(page);
+        ExpandedCompletedDrafts.Clear();
+    }
+    private static RenderFragment SourceBadge(string? source) => builder =>
+    {
+        var label = DraftStatsService.NormalizeSource(source);
+        builder.OpenElement(0, "span"); builder.AddAttribute(1, "class", "draft-source source-" + label);
+        builder.AddContent(2, label); builder.CloseElement();
+    };
+    private static RenderFragment HostDisplay(string? source, string host) => builder =>
+    {
+        if (source == "public") { builder.OpenElement(0, "em"); builder.AddContent(1, "none"); builder.CloseElement(); }
+        else builder.AddContent(2, host);
+    };
 
     private static string FormatLocalTime(DateTime? utc) =>
         utc is null ? "Never" : utc.Value.ToLocalTime().ToString("G");

@@ -11,6 +11,20 @@ public sealed class DraftStatsService(
     ILogger<DraftStatsService> logger)
 {
     private readonly object _lock = new();
+    private List<CompletedDraftStatsRecord>? cachedHistory;
+    private DateTime cachedWriteTime;
+    private long cachedLength;
+
+    public CompletedDraftStatsPage GetCompletedDraftPage(int page = 1)
+    {
+        lock (_lock)
+        {
+            var records = LoadCompletedDrafts();
+            var pages = Math.Max(1, (records.Count + 99) / 100);
+            page = Math.Clamp(page, 1, pages);
+            return new(records.Skip((page - 1) * 100).Take(100).ToArray(), page, records.Count, pages);
+        }
+    }
 
     public bool SaveCompletedHistoryEnabled => options.Value.SaveCompletedDraftHistory != false;
 
@@ -33,7 +47,8 @@ public sealed class DraftStatsService(
 
         var record = new CompletedDraftStatsRecord
         {
-            HostName = HostName(room),
+            HostName = room.IsPublicQueue ? "none" : HostName(room),
+            Source = room.Source,
             DraftCode = room.Code,
             PlayerCount = DraftTurnService.ActiveSlots(room).Count(),
             CompletedUtc = DateTime.UtcNow,
@@ -62,7 +77,12 @@ public sealed class DraftStatsService(
 
         try
         {
-            return ParseCompletedDrafts(File.ReadAllText(path, Encoding.UTF8));
+            var info = new FileInfo(path);
+            if (cachedHistory is not null && cachedWriteTime == info.LastWriteTimeUtc && cachedLength == info.Length) return cachedHistory;
+            cachedHistory = ParseCompletedDrafts(File.ReadAllText(path, Encoding.UTF8))
+                .OrderByDescending(r => r.CompletedUtc).ThenBy(r => r.DraftCode, StringComparer.Ordinal).ToList();
+            cachedWriteTime = info.LastWriteTimeUtc; cachedLength = info.Length;
+            return cachedHistory;
         }
         catch (Exception ex)
         {
@@ -75,7 +95,9 @@ public sealed class DraftStatsService(
     {
         var path = CompletedDraftsPath();
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        File.WriteAllText(path, FormatCompletedDrafts(records), Encoding.UTF8);
+        File.WriteAllText(path + ".tmp", FormatCompletedDrafts(records), Encoding.UTF8);
+        File.Move(path + ".tmp", path, overwrite: true);
+        cachedHistory = null;
     }
 
     private string CompletedDraftsPath() =>
@@ -91,7 +113,7 @@ public sealed class DraftStatsService(
             .Where(player => !player.IsBot)
             .OrderBy(player => player.Team)
             .ThenBy(player => player.TeamIndex())
-            .Select(player => new DraftStatsParticipantRecord(player.NameOrFallback, StatsTeamCode(player)))
+            .Select(player => new DraftStatsParticipantRecord(player.NameOrFallback, room.IsPublicQueue ? TeamCode(player.Team) : StatsTeamCode(player)))
             .ToList();
 
     private static string DraftModeLabel(DraftMode mode) => mode switch
@@ -131,6 +153,7 @@ public sealed class DraftStatsService(
 
             records.Add(new CompletedDraftStatsRecord
             {
+                Source = NormalizeSource(GetNullableString(element, "source")),
                 HostName = GetString(element, "hostName"),
                 DraftCode = GetString(element, "draftCode"),
                 PlayerCount = GetInt(element, "playerCount"),
@@ -160,6 +183,7 @@ public sealed class DraftStatsService(
             {
                 $"    \"hostName\": {Json(record.HostName)}",
                 $"    \"draftCode\": {Json(record.DraftCode)}",
+                $"    \"source\": {Json(NormalizeSource(record.Source))}",
                 $"    \"playerCount\": {record.PlayerCount}"
             };
 
@@ -244,6 +268,7 @@ public sealed class DraftStatsService(
             : default;
 
     private static string Json<T>(T value) => JsonSerializer.Serialize(value, JsonOptions);
+    public static string NormalizeSource(string? value) => value is "public" or "custom" ? value : "web";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {

@@ -181,6 +181,47 @@ h3 {
     justify-content: center;
 }
 
+.site-footer .support-links {
+    display: flex;
+    gap: .75rem;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.site-footer .support-heading {
+    margin-top: 1.5rem;
+}
+
+.mod-download-area {
+    display: grid;
+    gap: .45rem;
+    margin-top: .75rem;
+}
+
+.mod-download-heading,
+.mod-download-links {
+    display: flex;
+    align-items: center;
+    gap: .45rem;
+    flex-wrap: wrap;
+}
+
+.mod-download-links {
+    padding-left: 0;
+}
+
+.help-icon {
+    display: inline-grid;
+    place-items: center;
+    width: 1.25rem;
+    height: 1.25rem;
+    border: 1px solid var(--line);
+    border-radius: 50%;
+    color: var(--muted);
+    font-size: .78rem;
+    cursor: help;
+}
+
 .site-footer a {
     color: rgba(211, 173, 85, .86);
 }
@@ -350,6 +391,48 @@ h3 {
 .login-form {
     display: grid;
     gap: .85rem;
+}
+
+.site-closed-shell {
+    display: grid;
+    align-content: center;
+    min-height: calc(100vh - 4rem);
+    padding: 1rem 0;
+}
+
+.site-closed-panel {
+    text-align: center;
+}
+
+.site-closed-panel h1 {
+    margin-bottom: .8rem;
+}
+
+.site-closed-panel h2 {
+    margin-bottom: .45rem;
+    color: var(--gold);
+    font-size: 1.15rem;
+}
+
+.site-closed-panel p {
+    color: var(--muted);
+}
+
+.site-closed-panel .login-form {
+    text-align: left;
+}
+
+.maintenance-divider {
+    width: min(220px, 70%);
+    height: 1px;
+    margin: 1.4rem auto;
+    background: linear-gradient(90deg, transparent, var(--line), transparent);
+}
+
+.field-note {
+    margin: -.35rem 0 0;
+    color: var(--muted);
+    font-size: .82rem;
 }
 
 .logout-link {
@@ -2259,3 +2342,10 @@ h3 {
         grid-template-columns: 1fr;
     }
 }
+.draft-source { display: inline-block; margin-left: .5rem; padding: .1rem .4rem; border: 1px solid currentColor; border-radius: 4px; font-size: .72rem; line-height: 1.4; }
+.source-web { color: #fff; }
+.source-public { color: #71afff; }
+.source-custom { color: #61d99b; }
+.stats-pagination { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; margin: 1rem 0; }
+.stats-pagination span { flex: 1; text-align: center; }
+.stats-match-players { display: grid; gap: .8rem; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); margin: 1rem 0; }

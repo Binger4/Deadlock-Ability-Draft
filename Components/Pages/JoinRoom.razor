@@ -5,15 +5,22 @@
 @using abilitydraft.Services
 @inject DraftRoomService RoomService
 @inject NavigationManager Nav
+@inject abilitydraft.Services.InGame.InGameRoomAdapter InGameAdapter
 
 <PageTitle>Join Draft Room</PageTitle>
 
 <main class="page-shell">
     <section class="page-header">
-        <a href="/">Back</a>
+        @if (!IsGameEntry)
+        {
+            <a href="/">Back</a>
+        }
         <p class="eyebrow">Join room</p>
         <h1>Enter a room code</h1>
-        <p>Join an open lobby by code. Draft state is stored on the server and updates for everyone connected to the room.</p>
+        @if (!IsGameEntry)
+        {
+            <p>Join an open lobby by code. Draft state is stored on the server and updates for everyone connected to the room.</p>
+        }
     </section>
 
     <section class="form-panel narrow">
@@ -23,9 +30,9 @@
         </label>
         <label>
             <span>Your name</span>
-            <input @bind="PlayerName" />
+            <input @bind="PlayerName" readonly="@IsGameEntry" />
         </label>
-        @if (ReconnectOnly)
+        @if (ReconnectOnly && !IsGameEntry)
         {
             <p class="message">This draft already started. You can only reconnect with the exact same nickname as a disconnected player.</p>
             <p class="message">You can also join as a spectator.</p>
@@ -47,10 +54,12 @@
             <p class="message">@Message</p>
         }
     </section>
-    <SiteFooter />
+    <SiteFooter GameEntry="@GameEntry" />
 </main>
 
 @code {
+    [SupplyParameterFromQuery(Name = "gameEntry")] public string? GameEntry { get; set; }
+    private bool IsGameEntry => !string.IsNullOrWhiteSpace(GameEntry);
     [Parameter] public string? InitialCode { get; set; }
     [SupplyParameterFromQuery(Name = "spectator")] public string? SpectatorQuery { get; set; }
 
@@ -63,6 +72,11 @@
 
     protected override void OnParametersSet()
     {
+        if (IsGameEntry)
+        {
+            try { PlayerName = InGameAdapter.WebsiteEntryName(GameEntry!); }
+            catch (InvalidOperationException ex) { Message = ex.Message; }
+        }
         if (!string.IsNullOrWhiteSpace(InitialCode) && string.IsNullOrWhiteSpace(RoomCode))
         {
             RoomCode = InitialCode;
@@ -86,6 +100,11 @@
     {
         try
         {
+            if (IsGameEntry)
+            {
+                Nav.NavigateTo("/" + InGameAdapter.JoinFromWebsite(GameEntry!, RoomCode, team).Path);
+                return;
+            }
             var result = RoomService.JoinRoom(RoomCode, PlayerName, team);
             var room = RoomService.GetRoom(result.RoomCode);
             var view = room?.Status == DraftRoomStatus.Lobby ? "lobby" : "draft";

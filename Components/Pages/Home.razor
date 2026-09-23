@@ -1,4 +1,11 @@
 @page "/"
+@rendermode InteractiveServer
+@using Microsoft.Extensions.Options
+@using abilitydraft.Services
+@using abilitydraft.Services.InGame
+@inject IOptions<InGameOptions> InGameOptions
+@inject ProjectLinksService ProjectLinks
+@implements IDisposable
 
 <PageTitle>Deadlock Ability Draft</PageTitle>
 
@@ -9,9 +16,28 @@
             <h1>Ability Draft for Deadlock</h1>
             <p>Create a room from server-side Deadlock files, invite players by code, choose a team, draft through a timed snake order, then export modified heroes, abilities, and optional VPK files.</p>
             <div class="home-actions">
-                <a class="primary-link" href="/create">Create room</a>
+                <a class="@(InGameOptions.Value.Enabled ? "secondary-link" : "primary-link")" href="/create">Create room</a>
                 <a class="secondary-link" href="/join">Join room</a>
             </div>
+            @if (InGameOptions.Value.Enabled)
+            {
+                <div class="mod-download-area">
+                    <div class="mod-download-heading">
+                        <button class="primary-link mod-download-button" @onclick="ToggleModDownloads">Download Mod</button>
+                        <span class="help-icon" title="Ability Draft is now available in-game via a single permanent VPK mod." aria-label="Ability Draft is now available in-game via a single permanent VPK mod.">?</span>
+                    </div>
+                    @if (ShowModDownloads)
+                    {
+                        <div class="mod-download-links">
+                            <a class="secondary-link" href="/download/ability-draft-mod">Download from site</a>
+                            @if (!string.IsNullOrWhiteSpace(ProjectLinks.GameBananaUrl))
+                            {
+                                <a class="secondary-link" href="@ProjectLinks.GameBananaUrl" target="_blank" rel="noopener noreferrer">Download from GameBanana</a>
+                            }
+                        </div>
+                    }
+                </div>
+            }
         </div>
         <div class="home-status-grid" aria-label="Draft flow">
             <span>18 hero pool</span>
@@ -22,3 +48,30 @@
     </section>
     <SiteFooter />
 </main>
+
+@code {
+    private bool ShowModDownloads;
+    private CancellationTokenSource? downloadChoicesLifetime;
+
+    private async Task ToggleModDownloads()
+    {
+        downloadChoicesLifetime?.Cancel();
+        if (ShowModDownloads)
+        {
+            ShowModDownloads = false;
+            return;
+        }
+
+        ShowModDownloads = true;
+        downloadChoicesLifetime = new CancellationTokenSource();
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(30), downloadChoicesLifetime.Token);
+            ShowModDownloads = false;
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    public void Dispose() => downloadChoicesLifetime?.Cancel();
+}

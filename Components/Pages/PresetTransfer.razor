@@ -1,0 +1,48 @@
+@using abilitydraft.Services
+@page "/presets/{Token}"
+@rendermode InteractiveServer
+@inject PresetTransferService Transfers
+
+<PageTitle>Ability Draft - Preset</PageTitle>
+<main class="page-shell">
+    <section class="page-header"><p class="eyebrow">Ability Draft</p><h1>@(download ? "Download preset" : "Load preset")</h1></section>
+    <section class="form-panel narrow">
+        @if (valid && !finished)
+        {
+            @if (download)
+            {
+                <p>Save this preset to reuse or share your Custom draft settings.</p>
+                <a class="primary" href="@($"/presets/{Token}/download")" download="custom-draft-preset.json">Download preset</a>
+            }
+            else
+            {
+                <p>Choose a JSON preset from your computer. Your settings will update in the game.</p>
+                <InputFile OnChange="Upload" accept="application/json,.json" />
+            }
+        }
+        @if (message is not null) { <p class="message">@message</p> }
+    </section>
+</main>
+
+@code {
+    [Parameter] public string Token { get; set; } = "";
+    private bool download, valid, finished;
+    private string? message;
+    protected override void OnParametersSet()
+    {
+        try { download = Transfers.IsDownload(Token); valid = true; }
+        catch (InvalidOperationException ex) { valid = false; message = ex.Message; }
+    }
+    private async Task Upload(InputFileChangeEventArgs args)
+    {
+        try
+        {
+            await using var stream = args.File.OpenReadStream(PresetTransferService.MaxBytes);
+            using var reader = new StreamReader(stream);
+            Transfers.Upload(Token, await reader.ReadToEndAsync());
+            finished = true;
+            message = "Preset sent. Return to Deadlock to check the settings.";
+        }
+        catch (Exception ex) { message = ex.Message; }
+    }
+}

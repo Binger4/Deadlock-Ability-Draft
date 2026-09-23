@@ -8,10 +8,18 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="Integration\**" />
+    <Content Remove="Integration\**" />
+    <None Remove="Integration\**" />
+    <ProjectReference Include="Integration\Contracts\AbilityDraft.Contracts.csproj" />
     <Compile Remove="Tools\**" />
     <Content Remove="Tools\**" />
     <EmbeddedResource Remove="Tools\**" />
     <None Remove="Tools\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Integration\dist\ability_draft_base.vpk" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="Exists('Integration\dist\ability_draft_base.vpk')" />
   </ItemGroup>
 
 </Project>

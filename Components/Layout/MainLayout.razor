@@ -1,10 +1,43 @@
 @inherits LayoutComponentBase
+@inject abilitydraft.Services.SiteAccessService SiteAccess
+@inject NavigationManager Nav
+@implements IDisposable
 
 <SoundToggle />
-@Body
+@if (IsAdminLoginPath)
+{
+    @Body
+}
+else
+{
+    <SiteAccessGate>
+        @Body
+    </SiteAccessGate>
+}
 
 <div id="blazor-error-ui" data-nosnippet>
     An unhandled error has occurred.
     <a href="." class="reload">Reload</a>
     <span class="dismiss">x</span>
 </div>
+
+@code {
+    private bool IsAdminLoginPath =>
+        Nav.ToBaseRelativePath(Nav.Uri).Split('?', '#')[0]
+            .Equals("admin/login", StringComparison.OrdinalIgnoreCase);
+
+    protected override void OnInitialized()
+    {
+        SiteAccess.Changed += OnSiteAccessChanged;
+    }
+
+    private void OnSiteAccessChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        SiteAccess.Changed -= OnSiteAccessChanged;
+    }
+}

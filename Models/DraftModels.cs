@@ -4,6 +4,7 @@ namespace abilitydraft.Models;
 
 public sealed class DeadlockDataOptions
 {
+    public bool AutomaticUpdatesEnabled { get; set; } = true;
     public string GameDataPath { get; set; } = "Data/Deadlock";
     public string IconsPath { get; set; } = "Data/Icons";
     public string OutputPath { get; set; } = "Data/Generated";
@@ -166,6 +167,10 @@ public sealed class AbilityDefinition
 
 public sealed class DraftRoom
 {
+    // Integration lifecycle applies only to rooms created through the game entry/queue.
+    public bool InGameManaged { get; set; }
+    public bool IsPublicQueue { get; set; }
+    public string Source => IsPublicQueue ? "public" : InGameManaged ? "custom" : "web";
     public string Code { get; init; } = string.Empty;
     public string Name { get; init; } = "Deadlock Ability Draft";
     public DateTime CreatedUtc { get; init; } = DateTime.UtcNow;
@@ -198,6 +203,8 @@ public sealed class DraftRoom
     public string? LastError { get; set; }
     public bool CompletedStatsRecorded { get; set; }
     public DateTime? CompletedUtc { get; set; }
+    // Set only by the opt-in runtime export path. Existing ZIP/VPK export is independent.
+    public string? RuntimeResultId { get; set; }
 
     public DraftTurn? CurrentTurn => CurrentTurnIndex >= 0 && CurrentTurnIndex < TurnOrder.Count ? TurnOrder[CurrentTurnIndex] : null;
     public bool IsCompleted => Status == DraftRoomStatus.Completed;
@@ -246,6 +253,9 @@ public sealed class DraftRoomConfig
 
 public sealed class DraftClientSession
 {
+    public string? SteamId64 { get; set; }
+    public bool IsBrowserConnected { get; set; } = true;
+    public bool IsInGameConnected { get; set; }
     public string PlayerId { get; init; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
     public bool IsHost { get; set; }
@@ -323,10 +333,14 @@ public sealed record ActiveDraftStatsRecord(
     bool AllowEmptySlotsAsBots,
     bool ChatDisabled,
     IReadOnlyList<DraftStatsParticipantRecord> Participants,
-    IReadOnlyList<string> Spectators);
+    IReadOnlyList<string> Spectators,
+    string Source = "web");
+
+public sealed record CompletedDraftStatsPage(IReadOnlyList<CompletedDraftStatsRecord> Items, int Page, int Total, int Pages);
 
 public sealed class CompletedDraftStatsRecord
 {
+    public string Source { get; set; } = "web";
     public string HostName { get; set; } = string.Empty;
     public string DraftCode { get; set; } = string.Empty;
     public int PlayerCount { get; set; }

@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
+    <DeadworksManagedDir Condition="'$(DeadworksManagedDir)' == ''">../../Tools/DeadworksSdk/managed/DeadworksManaged.Api/bin/Debug/net10.0</DeadworksManagedDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Runtime/AbilityDraft.Runtime.csproj" />
+    <Reference Include="DeadworksManaged.Api"><HintPath>$(DeadworksManagedDir)/DeadworksManaged.Api.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+  <Target Name="RequireSdk" BeforeTargets="ResolveReferences">
+    <Error Condition="!Exists('$(DeadworksManagedDir)/DeadworksManaged.Api.dll')" Text="Set DeadworksManagedDir to the supported SDK assembly directory. See Integration/README.md." />
+  </Target>
+</Project>

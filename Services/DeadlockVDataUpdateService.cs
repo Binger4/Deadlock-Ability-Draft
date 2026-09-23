@@ -22,6 +22,7 @@ public sealed class DeadlockVDataUpdateService(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        if (!options.Value.AutomaticUpdatesEnabled) return;
         while (!stoppingToken.IsCancellationRequested)
         {
             try

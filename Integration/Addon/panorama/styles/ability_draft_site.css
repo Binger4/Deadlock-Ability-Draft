@@ -1,0 +1,71 @@
+/* Mod shell only. The embedded draft keeps the site's original HTML and CSS. */
+#SiteScreen {
+    width: 96%; height: 94%; horizontal-align: center; vertical-align: center;
+    flow-children: down; background-color: #111a18fc; padding: 14px 18px 8px;
+    border: 1px solid #607369; box-shadow: #000000cc 0px 0px 28px 4px;
+}
+#DraftHeader { width: 100%; height: 70px; flow-children: right; border-bottom: 1px solid #708b7950; margin-bottom: 10px; }
+#DraftHeading { flow-children: down; width: fill-parent-flow(1); }
+.Eyebrow { color: #93afa1; font-family: oracle; font-size: 16px; letter-spacing: 2px; }
+.DraftTitle { color: #eee6d2; font-family: oracle; font-size: 34px; font-weight: bold; }
+#RoomBadge { color: #e4c779; font-family: oracle; font-size: 20px; vertical-align: center; margin-right: 24px; }
+.ADButton {
+    padding: 8px 20px; border: 2px solid #a2b4a699; border-radius: 24px;
+    background-color: #18251f; margin-right: 10px; vertical-align: center;
+    transition-property: background-color, border, brightness; transition-duration: 0.12s;
+}
+.ADButton Label { font-family: oracle; font-weight: bold; font-size: 19px; color: #eee6d2; horizontal-align: center; vertical-align: center; }
+.ADButton:hover { background-color: #39574a; border: 2px solid #e9e2cd; brightness: 1.2; sound: "UI.PlayMenu.Hover"; }
+.ADButton:active { brightness: 0.8; sound: "UI.PlayMenu.Activate"; }
+.ADButton.Primary { background-color: #d9cfb1; border: 2px solid #d9cfb1; }
+.ADButton.Primary Label { color: #17221c; }
+.ADButton.Primary:hover { background-color: #f2e8c8; }
+.ADButton.Primary.CoolingDown { flow-children: right; background-color: #252e28; border-color: #80775f; }
+.ADButton.Primary.CoolingDown Label { color: #bdb69f; }
+#PlayDraftCountdown { margin-left: 14px; padding: 2px 9px; border-radius: 4px; background-color: #141b17; color: #e4c779; font-family: oracle; font-size: 21px; }
+.ADButton.Danger { background-color: #492d29; border: 1px solid #b88470; }
+.ADButton.Quiet { background-color: #111a18; border: 1px solid #7b8c7880; padding: 8px 16px; }
+.ADButton.Quiet Label { font-size: 17px; }
+#DraftToolbar { width: 100%; height: 46px; flow-children: right; margin-bottom: 10px; }
+#DraftContent { width: 100%; height: fill-parent-flow(1); }
+#DraftWebsite { width: 100%; height: 100%; }
+#WaitingScreen { width: 100%; height: 100%; background-color: gradient(linear, 0% 0%, 100% 100%, from(#233e33), to(#101714)); }
+#WaitingCard { width: 740px; horizontal-align: center; vertical-align: center; flow-children: down; padding: 46px; border-top: 2px solid #90b9a6; background-color: #111b17ee; }
+#WaitingCard .Eyebrow { horizontal-align: center; }
+#WaitingTitle { horizontal-align: center; font-family: oracle; font-size: 42px; font-weight: bold; color: #f0e6cd; margin-top: 12px; text-align: center; }
+#QueueCount { horizontal-align: center; font-family: oracle; font-size: 86px; color: #b5d1c0; margin: 14px 0px; }
+#WaitingHint { width: 100%; color: #b4c1b6; font-family: sans; font-size: 20px; text-align: center; white-space: normal; }
+#CancelQueue { horizontal-align: center; margin-top: 32px; }
+#siteStatus { width: 100%; height: 28px; padding-top: 5px; font-family: sans; font-size: 16px; color: #c3b895; text-overflow: shrink; }
+#OpenSite { horizontal-align: right; vertical-align: top; margin: 70px 22px 0px 0px; background-color: #18251ff5; }
+#MatchScreen { width: 100%; height: 100%; flow-children: down; background-color: #101b18; }
+#MatchSummary { width: 100%; flow-children: down; padding: 18px 24px; background-color: #182a22; border-bottom: 1px solid #72978155; }
+#MatchPhase { font-family: oracle; font-size: 32px; font-weight: bold; color: #efe5c9; }
+#MatchTeams { width: 100%; height: fill-parent-flow(1); flow-children: right; }
+.MatchTeam { width: fill-parent-flow(1); height: 100%; flow-children: down; margin: 12px; }
+.TeamTitle { width: 100%; padding: 10px 14px; font-family: oracle; font-size: 23px; font-weight: bold; }
+.HiddenKing .TeamTitle { background-color: #59401c; color: #edc26d; }
+.Archmother .TeamTitle { background-color: #203e61; color: #9ec8f5; }
+.TeamPlayers { width: 100%; height: fill-parent-flow(1); flow-children: down; overflow: squish scroll; }
+.MatchPlayer { width: 100%; flow-children: down; padding: 12px; margin-top: 8px; background-color: #1c2b25; border: 1px solid #60756744; }
+.MatchPlayer.Offline { opacity: 0.5; }
+.MatchPlayerHeading { width: 100%; flow-children: right; }
+.RosterHero { width: 46px; height: 46px; margin-right: 12px; }
+.RosterName { flow-children: down; width: fill-parent-flow(1); }
+.PlayerName { font-family: oracle; font-size: 22px; font-weight: bold; color: #ece4ce; }
+.HeroName { font-family: sans; font-size: 16px; color: #a8c0b2; }
+.RosterSlots { width: 100%; flow-children: right; margin-top: 8px; }
+.RosterAbility { width: fill-parent-flow(1); flow-children: down; padding: 6px; margin-right: 5px; background-color: #101b17; border-bottom: 2px solid #617268; }
+.RosterAbilityIcon { width: 48px; height: 48px; horizontal-align: center; }
+.AbilityName { width: 100%; height: 32px; text-overflow: shrink; text-align: center; font-family: sans; font-size: 15px; color: #e3ddca; }
+.RosterAbility.Locked .RosterAbilityIcon { saturation: 0; opacity: 0.35; }
+.RosterAbility.Learned { border-bottom: 2px solid #a66adc; }
+.RosterAbility.Upgraded { border-bottom: 2px solid #a66adc; }
+
+.UpgradeBars { width: 80%; height: 15px; flow-children: right; horizontal-align: center; margin: 5px 0px; }
+.UpgradeBar { width: fill-parent-flow(1); height: 10px; margin: 2px; background-color: #09090b; border: 1px solid #48414e; }
+.UpgradeBar.Learned { background-color: #a66adc; border: 1px solid #c28df0; }
+.UpgradeBar:hover { border: 1px solid #ede1fc; brightness: 1.4; }
+/* Only the temporary in-panel tooltip is filtered. Native HUD tooltip styles
+   remain untouched when its manager returns to the game's overlay. */
+#AbilityDraftTooltipHost { width: 100%; height: 100%; z-index: 10000; }

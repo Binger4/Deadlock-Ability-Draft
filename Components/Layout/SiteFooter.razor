@@ -1,7 +1,35 @@
+@inject abilitydraft.Services.InGame.InGameRoomAdapter InGameAdapter
+@inject abilitydraft.Services.ProjectLinksService ProjectLinks
 <footer class="site-footer">
-    <p>Open source software built by <a href="https://github.com/Binger4" target="_blank" rel="noreferrer">Binger</a></p>
+    <p>Open source software built by <a href="https://github.com/Binger4" target="_blank" rel="noreferrer" @onclick="() => OpenExternal(0)" @onclick:preventDefault="IsGameEntry">Binger</a></p>
     <nav aria-label="Project links">
-        <a href="https://github.com/Binger4/Deadlock-Ability-Draft" target="_blank" rel="noreferrer">GitHub</a>
-        <a href="https://discord.gg/SxQjYeA7aW">Discord</a>
+        @foreach (var link in FooterLinks.Skip(1).Take(2).Select((link, index) => (link, index + 1)))
+        {
+            <a href="@link.link.Url" target="_blank" rel="noreferrer" @onclick="() => OpenExternal(link.Item2)" @onclick:preventDefault="IsGameEntry">@link.link.Label</a>
+        }
     </nav>
+    @if (FooterLinks.Count > 3)
+    {
+        <p class="support-heading">@ProjectLinks.GetSettings().SupportHeading</p>
+        <nav class="support-links" aria-label="Support links">
+            @foreach (var link in FooterLinks.Skip(3).Select((link, index) => (link, index + 3)))
+            {
+                <a href="@link.link.Url" target="_blank" rel="noreferrer" @onclick="() => OpenExternal(link.Item2)" @onclick:preventDefault="IsGameEntry">@link.link.Label</a>
+            }
+        </nav>
+    }
+    @if (Message is not null) { <p>@Message</p> }
 </footer>
+
+@code {
+    [Parameter] public string? GameEntry { get; set; }
+    private bool IsGameEntry => !string.IsNullOrEmpty(GameEntry);
+    private IReadOnlyList<abilitydraft.Services.ProjectLink> FooterLinks => ProjectLinks.FooterLinks();
+    private string? Message;
+    private void OpenExternal(int link)
+    {
+        if (!IsGameEntry) return;
+        try { InGameAdapter.OpenWebsiteLink(GameEntry!, link); Message = null; }
+        catch (InvalidOperationException) { Message = "Reopen Create lobby or Join lobby, then try the link again."; }
+    }
+}

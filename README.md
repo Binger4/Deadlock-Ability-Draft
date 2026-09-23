@@ -2,11 +2,13 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
-A web-based Ability Draft tool for [Deadlock](https://store.steampowered.com/app/1422450/Deadlock/), inspired by [Dota 2](https://store.steampowered.com/app/570/Dota_2/) [Ability Draft](https://dota2.fandom.com/wiki/Ability_Draft).
+Ability Draft for [Deadlock](https://store.steampowered.com/app/1422450/Deadlock/), available on the website and in-game with the Ability Draft VPK and Deadworks. Inspired by [Dota 2](https://store.steampowered.com/app/570/Dota_2/) [Ability Draft](https://dota2.fandom.com/wiki/Ability_Draft).
 
-![Screenshot](https://i.imgur.com/90ePgQb.png)
+![Screenshot](https://i.imgur.com/oeckes4.png)
 
-Players create a room, join by code, pick a team, draft heroes and abilities, then export generated Deadlock `.vdata` files and, if packing tools are installed, a ready `.vpk`.
+Create a custom lobby or join the public queue from Deadlock's Play menu. Draft heroes and abilities through the same website interface, then play on a dedicated server with your chosen loadout. The website handles the rooms, picks, timers and chat; Deadworks applies the finished draft in the match.
+
+The website's original workflow is still available: draft in your browser and download generated `.vdata` files as a ZIP, or a VPK when packing is enabled. In-game matches use one reusable addon and do not require a new VPK after each draft.
 
 
 **Live at: [deadlockabilitydraft.com](https://deadlockabilitydraft.com)**
@@ -22,7 +24,7 @@ Players create a room, join by code, pick a team, draft heroes and abilities, th
 Tools/Reduced_CSDK_12/
 ```
 
-The expected compiler path is:
+The website example config uses this compiler path:
 
 ```text
 Tools/Reduced_CSDK_12/game/bin_tools/win64/resourcecompiler.exe
@@ -42,19 +44,23 @@ dotnet run
 
 Open the localhost URL shown in the terminal.
 
+
+To generate a mod VPK from a website draft, set **`DeadPacker.Enabled` to `true`** in `appsettings.json` and configure the packing tools below. With packing disabled, the raw ZIP export remains available. This setting is separate from **`InGame.Enabled`**, which enables the game integration; automatic lobby and match servers also require `InGame.DraftServers.Enabled` and `InGame.MatchWorkers.Enabled`. See [RUNNING](Integration/RUNNING.md) for local setup and [HOSTING](Integration/HOSTING.md#backend-configuration) for the complete server configuration.
+
 ## Credits
 
 - Based on the idea and code of [deadlock-ability-swapper by Artemon121](https://github.com/Artemon121/deadlock-ability-swapper).
 - Contains and uses [DeadPacker by Artemon121](https://github.com/Artemon121/DeadPacker) for VPK packing.
 - Supports and requires a Reduced CSDK / Source 2 tool setup.
-- [Deadlock](https://store.steampowered.com/app/1422450/Deadlock/) and icons belongs to Valve.
+- In-game server integration uses [Deadworks](https://github.com/Deadworks-net/deadworks).
+- [Deadlock](https://store.steampowered.com/app/1422450/Deadlock/) and its icons belong to Valve.
 
 
 ## Requirements
 
 - .NET 10 SDK
 - DeadPacker, included in `Tools/DeadPacker`
-- CSDK 12 placed in `Tools/Reduced_CSDK_12`
+- CSDK 12 placed in `Tools/Reduced_CSDK_12` for VPK packing and addon builds
 - `heroes.vdata` and `abilities.vdata` are auto-loaded from SteamTracking/GameTracking-Deadlock
 - Hero and ability icons are already included in `Data/Icons`
 
@@ -98,8 +104,6 @@ Supported icon formats:
 .png .jpg .jpeg .webp
 ```
 
-
-
 ## VPK Packing
 
 DeadPacker is expected here:
@@ -126,12 +130,14 @@ admin / admin
 
 Change it before hosting:
 
-```text
-"Username": "admin",
-"Password": "admin"
+```json
+"AdminAuth": {
+  "Username": "admin",
+  "Password": "admin"
+}
 ```
 
-The admin panel also shows draft statistics. Active drafts are read from memory only. Completed draft history is saved to `Data/Stats/completed-drafts.json` when this config option is enabled:
+The admin panel shows active drafts, active match servers and completed draft history. Source flags identify **web** (white), **public** (blue) and **custom** (green); older records without a source are shown as web. Public drafts have no player host, so their Host field reads *none*. Completed history is paginated at 100 drafts per page, newest first. Active matches include the server state, connected player count, teams, heroes, abilities and spectators. Completed draft history is saved to `Data/Stats/completed-drafts.json` when this config option is enabled:
 
 ```json
 "DraftStats": {
@@ -141,6 +147,13 @@ The admin panel also shows draft statistics. Active drafts are read from memory 
 
 Admins can also send `console` messages into active drafts from the active draft statistics panel.
 
+Set the GameBanana URL and support-link names and URLs in Admin. They are saved in `Data/project-links.json`. Support links appear together beneath the existing footer links and open in the default browser when clicked in-game.
+
+You can change the downloaded VPK's number in **Mod download filename** at the bottom of Admin. The setting is saved and applies to new downloads immediately; the source VPK keeps its original name.
+
+When `InGame.Enabled` is `true`, the home page shows **Download Mod**. Its download choices close after 30 seconds. **Download from site** serves `Integration/dist/ability_draft_base.vpk` (or `dist/ability_draft_base.vpk`); **Download from GameBanana** appears when its URL is configured. Build the VPK for the public website and game-server addresses before distributing it; see [HOSTING](Integration/HOSTING.md#build-the-player-vpk).
+
+The admin panel can close the public site for maintenance. While closed, every routed page shows the maintenance screen; `/admin/login` remains available, and a saved developer password can bypass the closure. Every new closure invalidates earlier developer-access sessions. The maintenance state and password hash are stored in the ignored `Data/site-access.json` file.
 
 ## Draft Flow
 
@@ -149,24 +162,21 @@ Admins can also send `console` messages into active drafts from the active draft
 3. Players choose a team:
    - The Hidden King
    - The Archmother
-4. Host starts the draft.
+4. The host starts a custom draft. Public drafts start when the queue fills.
 5. Server randomizes players inside each team.
-6. Picks use snake-style alternating team order.
+6. Picks follow the selected draft mode. Classic uses a snake-style alternating team order.
 7. Each player drafts:
    - 1 hero
    - 3 normal abilities
    - 1 ultimate
-8. Host clicks `Generate files`.
-9. Download ZIP, if configured successfully - VPK.
-
-
+8. In-game custom lobby: the host clicks `PLAY DRAFT`. Public queue: the draft starts automatically when the queue fills, and any player can click `PLAY DRAFT` after the 15-second countdown at draft completion. The website starts one match server and transfers the group once it is ready.
+9. Website-only: the host clicks `Generate files` and downloads the ZIP or VPK. This button is hidden for rooms created in-game.
 
 ![Screenshot](https://i.imgur.com/c2juGsk.png)
 
-
 ## Draft Timers
 
-- 30 second preparation phase.
+- 30 seconds of draft preparation.
 - 20 seconds per pick.
 - If time expires, the server auto-picks a valid item.
 
@@ -180,7 +190,7 @@ Custom presets:
 - `Generate preset` downloads the current Custom settings as `custom-draft-preset.json`.
 - `Load preset` restores Custom settings and selected custom bans/unbans before the draft starts.
 - Presets include only room Custom settings and selected custom bans.
-
+- In-game, these buttons open a short-lived page in your default browser. Download there or choose a file using the browser's normal file picker, then return to Deadlock. An uploaded preset updates the original game form automatically; validation is the same as on the website. Links expire after ten minutes and close when you leave the form.
 
 ## Room Chat
 
@@ -192,6 +202,8 @@ Chat scopes:
 - `All` sends to both teams
 
 Spectators can join rooms to watch the draft. During an active draft, spectator chat is visible only to other spectators. After the draft ends, new spectator messages become visible to everyone.
+
+Spectators can join by code at any point: in the lobby, during drafting or while the match is running. Choose **Custom Lobby > Join by code > Join as Spectator**, then **WATCH MATCH** when the server is ready. Spectators do not occupy draft seats or delay preparation, and leaving as a spectator does not stop a match while players remain.
 
 Nicknames use team colors. Right click a player name in chat or on the draft panels to mute/unmute that player locally for your current session.
 
@@ -289,11 +301,9 @@ wwwroot/sounds/auto-pick.mp3
 
 Missing sound files are ignored.
 
-## Required Config
+## Configuration
 
-`appsettings.json` is required to run the app.
-
-Copy the example config:
+Copy [appsettings.example.json](appsettings.example.json) to `appsettings.json` and edit it for the installation. The example contains all website, packing and in-game hosting settings.
 
 ```powershell
 Copy-Item appsettings.example.json appsettings.json
@@ -303,6 +313,29 @@ Example `appsettings.json`:
 
 ```json
 {
+  "InGame": {
+    "Enabled": false,
+    "ServerKey": "",
+    "PublicQueueEnabled": false,
+    "PublicMatchSize": 12,
+    "MatchWorkers": {
+      "Enabled": false,
+      "GameRoot": "",
+      "StateDirectory": "",
+      "PublicHost": "127.0.0.1",
+      "FirstPort": 27069,
+      "MaxWorkers": 10
+    },
+    "DraftServers": {
+      "Enabled": false,
+      "GameRoot": "",
+      "StateDirectory": "",
+      "BackendUrl": "http://127.0.0.1:5050/",
+      "WebsiteUrl": "http://localhost:5050/",
+      "CustomPort": 27067,
+      "PublicPort": 27068
+    }
+  },
   "Logging": {
     "LogLevel": {
       "Default": "Information",

@@ -55,7 +55,6 @@ window.deadlockAbilityDraft.copyText = async (text) => {
 };
 
 window.deadlockAbilityDraft.downloadTextFile = (fileName, content, mimeType) => {
-    try {
         const blob = new Blob([content || ""], { type: mimeType || "application/json" });
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
@@ -64,9 +63,8 @@ window.deadlockAbilityDraft.downloadTextFile = (fileName, content, mimeType) => 
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-    } catch {
-    }
+        // The browser may start reading the blob after the click handler returns.
+        window.setTimeout(() => URL.revokeObjectURL(url), 60000);
 };
 
 window.deadlockAbilityDraft.scrollToBottom = (element) => {

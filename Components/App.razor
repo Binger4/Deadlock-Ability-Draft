@@ -29,6 +29,7 @@
     <Routes />
     <ReconnectModal />
     <script src="@Assets["draft-sounds.js"]"></script>
+    <script src="@Assets["site-access.js"]"></script>
     <script src="@Assets["_framework/blazor.web.js"]"></script>
 </body>
 
@@ -41,7 +42,7 @@
     private string PreviewTitle => IsJoinInvite ? "Deadlock Ability Draft Invite" : "Deadlock Ability Draft";
     private string PreviewDescription => IsJoinInvite
         ? "Join a Deadlock Ability Draft room and draft heroes and abilities with friends."
-        : "Create Deadlock draft rooms, draft heroes and abilities with friends, and export VPK files for custom Deadlock games.";
+        : "Play Ability Draft in Deadlock: create a lobby, draft heroes and abilities with friends, and join your match. Browser drafting and VPK exports are also available.";
     private string PreviewImageUrl => new Uri(new Uri(Nav.BaseUri), IsJoinInvite ? "join-preview.png" : "site-preview.png").AbsoluteUri;
     private string PreviewUrl => IsJoinInvite ? Nav.Uri.Split('?', '#')[0] : SiteUrl;
 }
