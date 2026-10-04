@@ -76,13 +76,24 @@ console.log('PASS: skill hover restores full description; upgrade filtering and 
 
 // Exercise the actual game shell: support destinations must leave the HTML panel.
 let siteShell;
-const linkEvents = [], embeddedUrls = [], siteState = {}, shellNodes = {};
-const shellPanel = { get:(key,fallback)=>siteState[key] ?? fallback, text(){}, onClick(){},
- find:id=>shellNodes[id] ??= { SetHasClass(){}, SetURL(url){ embeddedUrls.push(url); }, SetFocus(){} } };
+const linkEvents = [], embeddedUrls = [], siteState = {}, shellNodes = {}, shellClicks = {};
+let websiteFocusCount = 0, chatFocus, chatOpen = false;
+const shellPanel = { get:(key,fallback)=>siteState[key] ?? fallback, text(){}, send(){}, onClick(id,fn){shellClicks[id]=fn;},
+ find:id=>shellNodes[id] ??= { SetHasClass(){}, SetURL(url){ embeddedUrls.push(url); },
+  SetPanelEvent(event,fn){this[event]=fn;}, SetAcceptsInput(value){this.acceptsInput=value;},
+  SetAcceptsFocus(value){this.acceptsFocus=value; if(!value) this.keyFocus=false;}, SetTopOfInputContext(value){this.topInputContext=value;},
+  BHasKeyFocus(){return !!this.keyFocus;},
+  SetIgnoreCursor(value){this.ignoresCursor=value;},
+  SetFocus(){assert.equal(shellNodes.SiteScreen.visible,true); assert.equal(shellNodes.SiteScreen.topInputContext,true);
+   assert.equal(this.acceptsFocus,true); assert.equal(this.visible,true); this.keyFocus=true; websiteFocusCount++;} } };
 const shellCtx = { AbilityDraftWebsiteOrigin:'https://draft.example.org/',
  AbilityDraftWaitingStatus:{update(){},restore(){}}, AbilityDraftMatch:{reset(){},hideTooltip(){}},
- DW:{registerPanel:config=>siteShell=config}, $:{Msg(){},Schedule(){},DispatchEvent:(...args)=>linkEvents.push(args)} };
+ AbilityDraftUpgrades:{update(){},restore(){}},
+ AbilityDraftChat:{isOpen(){return chatOpen;},init(_p,focus){chatFocus=focus;},render(){},destroy(){}},
+ DW:{registerPanel:config=>siteShell=config}, $:{Msg(){},Schedule(){},DispatchEvent:(...args)=>linkEvents.push(args),
+ RegisterEventHandler:()=>{throw Error('HTML events are not exposed to Panorama JavaScript');}} };
 vm.createContext(shellCtx);
+
 vm.runInContext(fs.readFileSync('Integration/Addon/panorama/scripts/ability_draft_site.js','utf8'),shellCtx);
 siteShell.init(shellPanel);
 siteState.externalLinkId = 'support-click'; siteState.externalUrl = 'https://draft.example.org/project-links/3';
@@ -96,3 +107,44 @@ siteShell.render(); assert.equal(linkEvents.length,1);
 siteState.externalUrl = 'https://draft.example.org/project-links/10';
 siteShell.render(); assert.equal(linkEvents.length,2);
 console.log('PASS: support links open the external browser once, never navigate embedded HTML, and reject foreign or injected routes');
+
+siteState.screen = 'website'; siteState.websiteUrl = 'http://localhost:5050/room/TEST';
+siteShell.render(); assert.equal(embeddedUrls.length,0);
+siteState.websiteUrl = 'https://draft.example.org/room/TEST';
+siteShell.render();
+assert.equal(embeddedUrls.at(-1),siteState.websiteUrl);
+const website = shellNodes.DraftWebsite;
+assert.equal(website.acceptsInput,true); assert.equal(website.ignoresCursor,false);
+const initialFocus = websiteFocusCount;
+siteShell.render(); assert.equal(websiteFocusCount,initialFocus); // State updates must not interrupt typing.
+website.onactivate();
+assert.equal(websiteFocusCount,initialFocus); // Do not refocus an already focused HTML form.
+website.keyFocus=false; website.onactivate();
+assert.equal(websiteFocusCount,initialFocus+1);
+chatOpen=true; chatFocus(true); website.keyFocus=false;
+assert.equal(website.acceptsInput,true); assert.equal(website.acceptsFocus,true);
+assert.equal(website.ignoresCursor,false); // Mouse movement must continue reaching CHTML during typing.
+website.onactivate(); // First click back on a draft card must regain focus even while chat is open.
+assert.equal(websiteFocusCount,initialFocus+2);
+chatOpen=false; chatFocus(false);
+assert.equal(websiteFocusCount,initialFocus+2);
+shellClicks.CloseSite();
+assert.equal(website.acceptsInput,false); assert.equal(website.ignoresCursor,true);
+assert.equal(shellNodes.SiteScreen.topInputContext,false); assert.equal(website.acceptsFocus,false);
+website.onactivate(); assert.equal(websiteFocusCount,initialFocus+2);
+shellClicks.OpenSite(); assert.equal(websiteFocusCount,initialFocus+3);
+siteShell.onDestroy(); website.onactivate(); assert.equal(websiteFocusCount,initialFocus+3);
+assert.equal(shellNodes.SiteScreen.topInputContext,false); assert.equal(website.acceptsFocus,false);
+siteShell.init(shellPanel); assert.equal(website.acceptsInput,true); assert(websiteFocusCount>initialFocus+2);
+console.log('PASS: HTML regains keyboard focus on open, navigation and click; hidden/destroyed panels do not capture typing');
+
+const shopStart = linkEvents.length;
+siteState.itemPurchase = JSON.stringify({id:'a'.repeat(32),item:'upgrade_echo_shard'});
+siteShell.render(); siteShell.render();
+assert.deepEqual(linkEvents.slice(shopStart), [['CitadelConCommand','buyitem upgrade_echo_shard']]);
+siteState.itemPurchase = JSON.stringify({id:'b'.repeat(32),item:'upgrade_echo_shard;quit'});
+siteShell.render(); assert.equal(linkEvents.length,shopStart+1);
+siteState.itemPurchase = JSON.stringify({id:'c'.repeat(32),item:'upgrade_echo_shard'});
+siteShell.render(); assert.equal(linkEvents.length,shopStart+2);
+siteShell.onDestroy(); siteShell.init(shellPanel); assert.equal(linkEvents.length,shopStart+2);
+console.log('PASS: native purchases dispatch once, reject command injection and do not replay after panel recreation');

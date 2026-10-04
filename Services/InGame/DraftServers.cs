@@ -78,9 +78,14 @@ public sealed class DraftServerSupervisor(IOptions<DraftServerOptions> options, 
         lock (gate)
         {
             var config = options.Value;
-            if (!Path.IsPathFullyQualified(config.StateDirectory) || config.CustomPort is < 1024 or > 65535 ||
-                config.PublicPort is < 1024 or > 65535 || config.CustomPort == config.PublicPort)
-                throw new InvalidOperationException("Invalid drafting server configuration.");
+            if (!Path.IsPathFullyQualified(config.StateDirectory))
+                throw new InvalidOperationException("InGame:DraftServers:StateDirectory must be an absolute private directory path.");
+            if (config.CustomPort is < 1024 or > 65535)
+                throw new InvalidOperationException("InGame:DraftServers:CustomPort must be between 1024 and 65535.");
+            if (config.PublicPort is < 1024 or > 65535)
+                throw new InvalidOperationException("InGame:DraftServers:PublicPort must be between 1024 and 65535.");
+            if (config.CustomPort == config.PublicPort)
+                throw new InvalidOperationException("InGame:DraftServers:CustomPort and PublicPort must be different.");
             if (servers.Count == 0)
                 foreach (var pair in new[] { ("custom", config.CustomPort), ("public", config.PublicPort) })
                     servers[pair.Item1] = new(new(pair.Item1, Path.Combine(config.StateDirectory, pair.Item1), pair.Item2));

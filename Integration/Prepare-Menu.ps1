@@ -12,7 +12,7 @@ if (!(Test-Path -LiteralPath $cli)) { throw 'Source2Viewer CLI 20.0 is required 
 $dump = Join-Path $PSScriptRoot 'local/menu-template.xml'
 & $cli -i (Join-Path $GameRoot 'game/citadel/pak01_dir.vpk') -o $dump -d -f panorama/layout/citadel_db_page_play.vxml_c | Out-Null
 if ($LASTEXITCODE -ne 0) { throw 'Could not decompile the installed play page.' }
-[xml]$layout = Get-Content -LiteralPath $dump -Raw
+[xml]$layout = Get-Content -LiteralPath $dump -Raw -Encoding UTF8
 $target = $layout.SelectNodes("//Panel[@id='PlayOptions']")
 if ($target.Count -ne 1) { throw 'PlayOptions structure changed; review the new game layout before patching.' }
 $scripts = $layout.CreateElement('scripts')
@@ -30,12 +30,12 @@ $fragment.InnerXml = @'
   <Button id="AbilityDraftPublic" class="playoption ADModeCard dim_in_queue" hittest="true" onmouseover="CitadelMusicQueueArpeggiatorNote()">
     <Panel id="UnavailableOverlay"><Label class="unavailable_queue" text="#menu_play_unavailable_in_queue" /></Panel>
     <Panel class="ADCardBacker" />
-    <Panel class="ADCardCopy"><Label class="ADModeTitle" text="ABILITY DRAFT" /><Label class="ADModeAction" text="PUBLIC QUEUE" /><Label class="ADModeDescription" text="Find players · Draft your abilities" /></Panel>
+    <Panel class="ADCardCopy"><Label class="ADModeTitle" text="ABILITY DRAFT" /><Label class="ADModeAction" text="PUBLIC QUEUE" /><Label class="ADModeDescription" text="Find players &#183; Draft your abilities" /></Panel>
   </Button>
   <Button id="AbilityDraftCustom" class="playoption ADModeCard dim_in_queue" hittest="true" onmouseover="CitadelMusicQueueArpeggiatorNote()">
     <Panel id="UnavailableOverlay"><Label class="unavailable_queue" text="#menu_play_unavailable_in_queue" /></Panel>
     <Panel class="ADCardBacker" />
-    <Panel class="ADCardCopy"><Label class="ADModeTitle" text="ABILITY DRAFT" /><Label class="ADModeAction" text="CUSTOM LOBBY" /><Label class="ADModeDescription" text="Create a room · Invite by code" /></Panel>
+    <Panel class="ADCardCopy"><Label class="ADModeTitle" text="ABILITY DRAFT" /><Label class="ADModeAction" text="CUSTOM LOBBY" /><Label class="ADModeDescription" text="Create a room &#183; Invite by code" /></Panel>
   </Button>
 </Panel>
 '@
@@ -50,9 +50,19 @@ Write-Output 'Added two Ability Draft entries to the installed game play page. N
 $waitingDump = Join-Path $PSScriptRoot 'local/waiting-template.xml'
 & $cli -i (Join-Path $GameRoot 'game/citadel/pak01_dir.vpk') -o $waitingDump -d -f panorama/layout/citadel_waiting_for_players_status.vxml_c | Out-Null
 if ($LASTEXITCODE -ne 0) { throw 'Could not decompile the installed connecting status.' }
-[xml]$waiting = Get-Content -LiteralPath $waitingDump -Raw
+[xml]$waiting = Get-Content -LiteralPath $waitingDump -Raw -Encoding UTF8
 $waitingRoot = $waiting.SelectNodes('/root/CitadelWaitingForPlayersStatus')
 if ($waitingRoot.Count -ne 1) { throw 'Connecting status layout changed; review before patching.' }
 $waitingRoot[0].SetAttribute('style', 'visibility: collapse; opacity: 0; height: 0px;')
 $waiting.Save((Join-Path $ContentDirectory 'panorama/layout/citadel_waiting_for_players_status.xml'))
 Write-Output 'Suppressed the native connecting notification; normal match preparation countdown is preserved.'
+
+$iconDump = Join-Path $PSScriptRoot 'local/ability-icon-template.xml'
+& $cli -i (Join-Path $GameRoot 'game/citadel/pak01_dir.vpk') -o $iconDump -d -f panorama/layout/hud_ability_icon.vxml_c | Out-Null
+if ($LASTEXITCODE -ne 0) { throw 'Could not decompile the installed ability icon layout.' }
+[xml]$icons = Get-Content -LiteralPath $iconDump -Raw -Encoding UTF8
+if ($icons.SelectNodes('/root/CitadelAbilityIcon').Count -ne 1) { throw 'Ability icon layout changed; review before patching.' }
+$iconStyle = $icons.CreateElement('include')
+$iconStyle.SetAttribute('src', 'file://{resources}/styles/ability_draft_hud.css')
+$icons.SelectSingleNode('/root/styles').AppendChild($iconStyle) | Out-Null
+$icons.Save((Join-Path $ContentDirectory 'panorama/layout/hud_ability_icon.xml'))

@@ -130,9 +130,26 @@ public sealed partial class InGameRoomAdapter(DraftRoomService rooms, ServerDead
                         case "start": rooms.StartDraft(room.Code, client.PlayerId); break;
                         case "pick": rooms.Pick(room.Code, client.PlayerId, ResolveCard(room, command.Key)); break;
                         case "chat":
+                            var composer = command.Key is null ? null : NativeChat(steam);
+                            if (command.Key is not null && (composer?.Id != command.Key || composer.RoomCode != room.Code))
+                                throw new InvalidOperationException("Chat entry expired. Open Message again.");
+                            var chatSession = composer is null ? null : nativeChats[steam];
+                            if (chatSession is not null && command.ChatSequence != 0)
+                            {
+                                // A lost acknowledgement can be retried without posting twice.
+                                if (command.ChatSequence == chatSession.LastSequence && command.Text == chatSession.LastText) break;
+                                if (command.ChatSequence != chatSession.LastSequence + 1)
+                                    throw new InvalidOperationException("Chat message is out of order. Open Message again.");
+                            }
                             var scope = client.Team == DeadlockTeam.Spectator ? DraftChatScope.Spectators :
-                                command.Scope == "All" ? DraftChatScope.All : DraftChatScope.Allies;
-                            rooms.SendChatMessage(room.Code, client.PlayerId, scope, command.Text ?? ""); break;
+                                (composer?.Scope ?? command.Scope) == "All" ? DraftChatScope.All : DraftChatScope.Allies;
+                            rooms.SendChatMessage(room.Code, client.PlayerId, scope, command.Text ?? "");
+                            if (chatSession is not null)
+                            {
+                                if (command.ChatSequence == 0) nativeChats.Remove(steam); // Older clients use a single submission.
+                                else nativeChats[steam] = chatSession with { LastSequence = command.ChatSequence, LastText = command.Text, Expires = DateTime.UtcNow.AddMinutes(5) };
+                            }
+                            break;
                         case "recommend": case "want":
                             rooms.SendQuickChat(room.Code, client.PlayerId, ResolveCard(room, command.Key),
                                 command.Operation == "want" ? DraftQuickChatAction.WantThis : DraftQuickChatAction.Recommend); break;

@@ -48,7 +48,7 @@ public sealed partial class InGameRoomAdapter
                     var connected = room.Clients.Any(c => c.SteamId64 is null ? c.IsConnected : c.IsInGameConnected);
                     if (connected) { emptyRooms.Remove(code); continue; }
                     if (!emptyRooms.TryGetValue(code, out var since)) emptyRooms[code] = now;
-                    else if (now - since >= TimeSpan.FromSeconds(15)) CloseManagedRoom(room, "All players left this draft.");
+                    else if (now - since >= TimeSpan.FromMinutes(2)) CloseManagedRoom(room, "Nobody rejoined this draft within two minutes.");
                 }
             }
             foreach (var steam in memberships.Keys.Where(s => !HasMembership(s)).ToArray()) ForgetMembership(steam);
@@ -67,6 +67,8 @@ public sealed partial class InGameRoomAdapter
     {
         memberships.TryRemove(steam, out _);
         heartbeats.TryRemove(steam, out _);
+        websiteActivity.Remove(steam);
+        nativeChats.Remove(steam);
         publicAssignments.Remove(steam);
         foreach (var token in browserEntries.Where(p => p.Value.Steam == steam).Select(p => p.Key).ToArray()) browserEntries.Remove(token);
     }

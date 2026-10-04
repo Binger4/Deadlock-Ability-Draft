@@ -6,6 +6,7 @@ $configFile = Join-Path $local 'settings.json'
 if (Test-Path -LiteralPath $configFile) { Write-Output 'Existing local settings retained.'; return }
 $config = [ordered]@{
     BackendUrl = 'http://127.0.0.1:5050/'
+    WebsiteUrl = 'https://localhost:7050/'
     ServerKey = [Convert]::ToHexString([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
     GameRoot = (Resolve-Path -LiteralPath $GameRoot).Path
     ServerPort = 27067

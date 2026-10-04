@@ -1,13 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
-    <DeadworksManagedDir Condition="'$(DeadworksManagedDir)' == ''">../../Tools/DeadworksSdk/managed/DeadworksManaged.Api/bin/Debug/net10.0</DeadworksManagedDir>
+    <DeadworksManagedDir Condition="'$(DeadworksManagedDir)' == ''">../../Tools/DeadworksRelease/v0.5.3/game/bin/win64/managed</DeadworksManagedDir>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../Runtime/AbilityDraft.Runtime.csproj" />
     <Reference Include="DeadworksManaged.Api"><HintPath>$(DeadworksManagedDir)/DeadworksManaged.Api.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Google.Protobuf"><HintPath>$(DeadworksManagedDir)/Google.Protobuf.dll</HintPath><Private>false</Private></Reference>
   </ItemGroup>
   <Target Name="RequireSdk" BeforeTargets="ResolveReferences">
-    <Error Condition="!Exists('$(DeadworksManagedDir)/DeadworksManaged.Api.dll')" Text="Set DeadworksManagedDir to the supported SDK assembly directory. See Integration/README.md." />
+    <Error Condition="!Exists('$(DeadworksManagedDir)/DeadworksManaged.Api.dll')" Text="Set DeadworksManagedDir to the installed Deadworks 0.5.3 managed directory. See Integration/HOSTING.md." />
   </Target>
 </Project>

@@ -116,6 +116,7 @@ public sealed class MatchWorkerCoordinator(IOptions<MatchWorkerOptions> options,
         public readonly Dictionary<string, DraftSpectator> Spectators = result.Spectators.ToDictionary(s => s.SteamId64);
         public Dictionary<string, string> Names = new();
         public int Connected;
+        public bool HadPlayers;
     }
     public MatchView Request(DraftResult result, DraftResourceCatalog catalog)
     {
@@ -238,6 +239,11 @@ public sealed class MatchWorkerCoordinator(IOptions<MatchWorkerOptions> options,
             {
                 try
                 {
+                    if (File.Exists(Path.Combine(worker.Directory, "ended.json")))
+                    {
+                        Finish(worker, "Completed", "Match ended. Create a new draft to play again.", now);
+                        continue;
+                    }
                     if (worker.Process!.HasExited)
                     {
                         Finish(worker, worker.State == "Completed" ? "Completed" : "Failed",
@@ -254,6 +260,7 @@ public sealed class MatchWorkerCoordinator(IOptions<MatchWorkerOptions> options,
                             throw new InvalidOperationException("Invalid match worker report.");
                         if (report.State == "Failed") { Finish(worker, "Failed", "Drafted loadout preparation failed. Check match logs.", now); continue; }
                         worker.Connected = report.Connected;
+                        worker.HadPlayers |= report.Connected > 0 || report.State == "Playing" || report.EmptySinceUtc is not null;
                         if (report.State == "Completed")
                         {
                             worker.Ended ??= now;
@@ -274,13 +281,15 @@ public sealed class MatchWorkerCoordinator(IOptions<MatchWorkerOptions> options,
                             worker.Message = report.State == "Playing" ? "Match in progress" : $"Match server ready · {report.Connected}/{report.Required} players connected";
                         }
                         if (now - report.Utc > TimeSpan.FromSeconds(30)) { Finish(worker, "Failed", "Match server stopped responding.", now); continue; }
-                        // Reclaim a match abandoned by its entire roster, while allowing a short reconnect grace.
-                        if (report.State == "Playing" && report.Connected == 0)
+                        // Bots/spectators are not substitutes for a connected drafted player.
+                        if (worker.HadPlayers && report.Connected == 0)
                         {
+                            if (report.EmptySinceUtc is { } since && since <= report.Utc && since >= worker.Created)
+                                worker.EmptySince = since;
                             worker.EmptySince ??= now;
-                            if (now - worker.EmptySince > TimeSpan.FromSeconds(15))
+                            if (now - worker.EmptySince >= TimeSpan.FromMinutes(2))
                             {
-                                Finish(worker, "Completed", "Match ended because all players left.", now);
+                                Finish(worker, "Completed", "Nobody rejoined within two minutes. The match has ended.", now);
                                 continue;
                             }
                         }
@@ -288,7 +297,7 @@ public sealed class MatchWorkerCoordinator(IOptions<MatchWorkerOptions> options,
                     }
                     if (worker.Ready is null && now - worker.Created > TimeSpan.FromMinutes(2))
                         Finish(worker, "Failed", "Match server startup timed out.", now);
-                    else if (worker.State == "Ready" && worker.AllConnectedSince is null && now - worker.Ready > TimeSpan.FromMinutes(3))
+                    else if (worker.State == "Ready" && !worker.HadPlayers && now - worker.Ready > TimeSpan.FromMinutes(3))
                         Finish(worker, "Failed", "Not all drafted players joined the match in time.", now);
                     else if (worker.State == "Ready" && worker.AllConnectedSince is { } connected && now - connected > TimeSpan.FromSeconds(90))
                         Finish(worker, "Failed", "Match preparation did not complete. Check match logs.", now);
@@ -307,6 +316,7 @@ public sealed class MatchWorkerCoordinator(IOptions<MatchWorkerOptions> options,
     }
     private void Finish(Worker worker, string state, string message, DateTime now)
     {
+        if (state == "Completed") File.WriteAllText(Path.Combine(worker.Directory, "ended.json"), message);
         worker.Process?.Dispose(); worker.Process = null;
         worker.State = state; worker.Message = message; worker.Ended ??= now;
         logger.LogInformation("Match worker {Match} stopped: {State}", worker.Id, state);

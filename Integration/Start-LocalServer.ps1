@@ -3,6 +3,7 @@ $ErrorActionPreference = 'Stop'
 $config = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'local/settings.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 if (Get-Process deadworks -ErrorAction SilentlyContinue) { throw 'A Deadworks server is already running.' }
 $env:ABILITYDRAFT_BACKEND_URL = $config.BackendUrl
+$env:ABILITYDRAFT_WEBSITE_URL = if ($config.WebsiteUrl) { $config.WebsiteUrl } else { 'https://localhost:7050/' }
 $env:ABILITYDRAFT_SERVER_KEY = $config.ServerKey
 $env:ABILITYDRAFT_ENABLE_RUNTIME = if ($config.EnableRuntime) { '1' } else { '0' }
 $env:ABILITYDRAFT_USE_WEBSITE = '1'

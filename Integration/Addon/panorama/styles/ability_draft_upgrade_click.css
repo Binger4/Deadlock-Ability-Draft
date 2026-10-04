@@ -1,0 +1,15 @@
+.AbilityDraftTrainClick
+{
+    width: 100%;
+    height: 100%;
+    z-index: 1000;
+    background-color: transparent;
+    visibility: collapse;
+}
+.gScoreboardOpen.AbilityDraftTrainClick,
+.gDetailView.AbilityDraftTrainClick,
+.gScoreboardOpen .AbilityDraftTrainClick,
+.gDetailView .AbilityDraftTrainClick
+{
+    visibility: visible;
+}

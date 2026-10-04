@@ -13,6 +13,7 @@ public sealed partial class AbilityDraftPlugin
     private readonly Dictionary<uint, (sbyte Current, sbyte Original)> lastLanes = new();
     private readonly Dictionary<uint, int> lastIntroLanes = new();
     private float nextLaneAudit;
+    private int lastArrivalSecond = -1;
 
     private void EnsureNativeLobbySlots()
     {
@@ -34,6 +35,10 @@ public sealed partial class AbilityDraftPlugin
     {
         if (workerResult is null || !GameRules.IsValid || GlobalVars.CurTime < nextLaneAudit) return;
         nextLaneAudit = GlobalVars.CurTime + 0.25f;
+        var arrivalSecond = (int)GameRules.GameClock;
+        var auditArrival = Environment.GetEnvironmentVariable("ABILITYDRAFT_TRACE_MATCH_START") == "1" &&
+            matchReleased && arrivalSecond is >= 0 and <= 20 && arrivalSecond != lastArrivalSecond;
+        if (auditArrival) lastArrivalSecond = arrivalSecond;
         foreach (var player in Players.GetAll())
         {
             var lanes = (AssignedLane.Get(player.Handle), OriginalLane.Get(player.Handle));
@@ -43,6 +48,8 @@ public sealed partial class AbilityDraftPlugin
                 if (zipline is not null)
                 {
                     var attached = AttachedZiplineLane.Get(zipline.Handle);
+                    if (auditArrival)
+                        Log($"Lane arrival slot {player.Slot}: clock={arrivalSecond}, position={pawn.Position}, ziplineSlot={(int)zipline.AbilitySlot}, lane={attached}, riding={pawn.ModifierProp?.HasModifierState(EModifierState.UsingZipline)}, intro={pawn.ModifierProp?.HasModifierState(EModifierState.ZiplineIntro)}, cinematic={pawn.ModifierProp?.HasModifierState(EModifierState.CinematicIntro)}");
                     if (lastIntroLanes.GetValueOrDefault(player.EntityHandle, -1) != attached)
                     {
                         lastIntroLanes[player.EntityHandle] = attached;
@@ -58,8 +65,19 @@ public sealed partial class AbilityDraftPlugin
 
     public override HookResult OnClientConCommand(ClientConCommandEvent args)
     {
+        if (workerResult is not null && args.Controller is { } activePlayer && args.Command is "trainorupgradeability" or "upgrade_ability" or "buyitem" or "sellitem" or "say" or "say_team")
+            RecordMatchActivity(activePlayer);
+        if (workerResult is not null && args.Controller?.GetHeroPawn() is { } pawn &&
+            args.Command is "upgrade_ability" or "upgrade_ability_in_field" or "buyabilityupgrade" or "trainorupgradeability")
+        {
+            var slot = args.Controller.Slot;
+            Log($"Ability upgrade request slot {slot}: {args.Command}; args={string.Join(",", args.Args.Take(4))}; " +
+                $"released={matchReleased}; unlocks={pawn.GetCurrency(ECurrencyType.EAbilityUnlocks)}; points={pawn.GetCurrency(ECurrencyType.EAbilityPoints)}; " +
+                string.Join(",", pawn.AbilityComponent.Abilities.Where(a => a.IsSignature).Select(a => $"{(int)a.AbilitySlot}:{a.AbilityName}:{NativeAbilityProgress.Read(a)}:allowed={a.CanBeUpgraded}")));
+        }
         if (workerResult is not null && args.Command == "laneswap" && args.Controller is { } player)
             Log($"Native lane swap requested by slot {player.Slot}; assigned={AssignedLane.Get(player.Handle)}; args={string.Join(",", args.Args.Take(3))}");
-        return HookResult.Continue;
+        var training = HandleAbilityTraining(args);
+        return training == HookResult.Stop ? training : HandleItemPurchase(args);
     }
 }

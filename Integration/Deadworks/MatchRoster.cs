@@ -23,11 +23,11 @@ public sealed partial class AbilityDraftPlugin
             var controller = game.Find(AbilityDraft.Contracts.RuntimePlayerId.For(p));
             var pawn = controller?.GetHeroPawn();
             var native = pawn?.AbilityComponent.Abilities.Where(a => a.IsSignature).ToArray() ?? [];
-            var signature = string.Join(",", native.OrderBy(a => a.AbilitySlot).Select(a => $"{(int)a.AbilitySlot + 1}:{a.UpgradeBits}"));
+            var signature = string.Join(",", native.OrderBy(a => a.AbilitySlot).Select(a => $"{(int)a.AbilitySlot + 1}:{NativeAbilityProgress.Read(a)}"));
             if (native.Length > 0 && lastProgression.GetValueOrDefault(p.ParticipantId) != signature)
             {
                 lastProgression[p.ParticipantId] = signature;
-                Log($"Ability progression {p.ParticipantId}: {signature}");
+                Log($"Ability progression {p.ParticipantId}: {signature}" + (pawn is null ? "" : NativeAbilityProgress.Trace(pawn)));
             }
             return new
             {
@@ -36,7 +36,7 @@ public sealed partial class AbilityDraftPlugin
                 abilities = p.Slots.OrderBy(s => s.Slot).Select(s =>
                 {
                     var actual = native.SingleOrDefault(a => (int)a.AbilitySlot + 1 == s.Slot && a.AbilityName == s.AbilityKey);
-                    var progress = actual is null ? null : AbilityProgress.FromBits(actual.UpgradeBits);
+                    var progress = actual is null ? null : AbilityProgress.FromBits(NativeAbilityProgress.Read(actual));
                     return new { slot = s.Slot, key = s.AbilityKey, name = Name(s.AbilityKey), token = actual is null ? (uint?)null : AbilityToken.Get(actual.Handle),
                         level = progress?.Level, upgradeTier = progress?.UpgradeTier,
                         state = progress is null ? "Pending" : !progress.Unlocked ? "Locked" : progress.UpgradeTier == 0 ? "Learned" : "Upgraded" };

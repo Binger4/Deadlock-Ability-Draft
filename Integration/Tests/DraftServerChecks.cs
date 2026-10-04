@@ -6,6 +6,23 @@ static class DraftServerChecks
 {
     public static void Run(string temporary)
     {
+        foreach (var invalid in new[] {
+            new DraftServerOptions { Enabled = true },
+            new DraftServerOptions { Enabled = true, StateDirectory = "relative/drafting" },
+            new DraftServerOptions { Enabled = true, StateDirectory = temporary, CustomPort = 0 },
+            new DraftServerOptions { Enabled = true, StateDirectory = temporary, PublicPort = 65536 },
+            new DraftServerOptions { Enabled = true, StateDirectory = temporary, PublicPort = 27067 }
+        })
+        {
+            var rejectedHost = new Host();
+            using var rejected = new DraftServerSupervisor(Options.Create(invalid), Options.Create(new InGameOptions { Enabled = true }), rejectedHost, NullLogger<DraftServerSupervisor>.Instance);
+            try { rejected.Poll(DateTime.UtcNow); throw new Exception("Invalid configuration was accepted."); }
+            catch (InvalidOperationException ex)
+            {
+                Check(ex.Message.Contains("InGame:DraftServers:") && rejectedHost.Launched.Count == 0,
+                    "Invalid drafting configuration identifies the setting before launching a process");
+            }
+        }
         var config = new DraftServerOptions { Enabled = true, StateDirectory = Path.Combine(temporary, "drafting") };
         var host = new Host();
         using var supervisor = new DraftServerSupervisor(Options.Create(config), Options.Create(new InGameOptions { Enabled = true }), host, NullLogger<DraftServerSupervisor>.Instance);

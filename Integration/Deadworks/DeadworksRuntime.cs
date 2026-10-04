@@ -95,7 +95,7 @@ public sealed class DeadworksRuntime : IGameDraftRuntime
             pawn.HeroID.ToHeroName() == heroKey && pawn.TeamNum == Team(team);
     }
     public RuntimeAbility[] SignatureAbilities(string steam) => Pawn(steam).AbilityComponent.Abilities
-        .Where(a => a.IsSignature).Select(a => new RuntimeAbility((int)a.AbilitySlot + 1, a.AbilityName, a.UpgradeBits)).ToArray();
+        .Where(a => a.IsSignature).Select(a => new RuntimeAbility((int)a.AbilitySlot + 1, a.AbilityName, NativeAbilityProgress.Read(a))).ToArray();
     public bool RemoveAbility(string steam, string key) => Pawn(steam).RemoveAbility(key);
     public bool AddAbility(string steam, RuntimeAbility ability)
     {
@@ -106,7 +106,8 @@ public sealed class DeadworksRuntime : IGameDraftRuntime
         var added = pawn.AbilityComponent.Abilities.SingleOrDefault(a => a.AbilitySlot == slot && a.AbilityName == ability.Key);
         if (added is null) return false;
         added.UpgradeBits = ability.UpgradeBits;
-        return added.UpgradeBits == ability.UpgradeBits;
+        NativeAbilityProgress.BindDraftedSlot(added);
+        return NativeAbilityProgress.Read(added) == ability.UpgradeBits;
     }
     public RuntimeProgression Progression(string steam)
     {

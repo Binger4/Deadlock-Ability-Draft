@@ -40,6 +40,7 @@ public sealed partial class AbilityDraftPlugin : DeadworksPluginBase
     {
         public int Slot = slot;
         public bool Busy;
+        public DateTime LastActivityUtc = DateTime.UtcNow;
         public DateTime NextPoll;
         public RoomView? View;
         public string? LastState;
@@ -86,7 +87,10 @@ public sealed partial class AbilityDraftPlugin : DeadworksPluginBase
         exportDirectory = Path.GetFullPath(Environment.GetEnvironmentVariable("ABILITYDRAFT_EXPORT_DIRECTORY") ?? "abilitydraft-exports");
         preparationArea = new NativePreparationArea(game, Log);
         applier = new(game, new DraftPreparationGate(PlayersPrepared, ApplicationFailed), Log);
+        InitializeAbilityTraining();
         UI.Panel(PanelId).On("command", OnCommand);
+        UI.Panel(PanelId).On("activity", e => RecordMatchActivity(e.Caller));
+        UI.Panel(PanelId).On("shopReady", e => shopClients.Add(e.Caller.EntityHandle));
         UI.AddonStatusChanged += AddonStatus;
         foreach (var player in Players.GetAll()) Connect(player);
         Log("Plugin loaded; runtime test application " + (allowRuntime ? "enabled" : "disabled"));
@@ -101,7 +105,10 @@ public sealed partial class AbilityDraftPlugin : DeadworksPluginBase
         if (player.PlayerSteamId == 0) return;
         var steam = player.PlayerSteamId.ToString();
         var session = new Session(player.Slot);
+        lastAbilityHud.Remove(player.EntityHandle);
         sessions[steam] = session;
+        inactivity.Remove(player.Slot); lastInputButtons.Remove(player.Slot);
+        if (workerResult is not null) matchLifetime.Observe(DateTime.UtcNow, ConnectedMatchPlayers());
         UI.Panel(PanelId).LoadXml(player.Recipients, useWebsite
             ? "file://{resources}/layout/ability_draft_site.xml"
             : "file://{resources}/layout/ability_draft.xml");
@@ -164,12 +171,30 @@ public sealed partial class AbilityDraftPlugin : DeadworksPluginBase
 
     private void OnCommand(UIEvent e)
     {
+        RecordMatchActivity(e.Caller);
         var steam = e.Caller.PlayerSteamId.ToString(); // Authenticated transport caller, never a JSON identity.
         if (!sessions.TryGetValue(steam, out var session)) return;
-        if (session.Busy) { Status(steam, "Please wait…"); return; }
         try
         {
             var command = PanoramaCommandCodec.Decode(e.ArgAt(0));
+            if (session.Busy)
+            {
+                if (useWebsite && command.Operation == "chat" && command.Key is not null)
+                    ReplyNativeChat(session, command, "Please try sending again in a moment.");
+                else Status(steam, "Please wait…");
+                return;
+            }
+            if (useWebsite && command.Operation == "chat" && command.Key is not null)
+            {
+                Run(steam, session, async () =>
+                {
+                    string? error;
+                    try { error = (await backend.Command(steam, command, stop.Token)).Error; }
+                    catch (Exception ex) { error = ex is InvalidOperationException ? ex.Message : "Chat connection failed. Try again."; }
+                    return () => ReplyNativeChat(session, command, error);
+                });
+                return;
+            }
             if (command.Operation == "leaveServer" && IsDraftHub)
             {
                 Run(steam, session, async () =>
@@ -296,6 +321,10 @@ public sealed partial class AbilityDraftPlugin : DeadworksPluginBase
     }
 
     // Async continuations only enqueue immutable results. UI/native calls happen in OnGameFrame.
+    private void ReplyNativeChat(Session session, RoomCommand command, string? error) =>
+        UI.Panel(PanelId).Set(Players.FromSlot(session.Slot)!.Recipients, "nativeChatResult",
+            JsonSerializer.Serialize(new { id = command.Key, sequence = command.ChatSequence, error, receipt = Guid.NewGuid().ToString("N") }, Json).Replace("^", "\\u005E"));
+
     private void Run(string steam, Session session, Func<Task<Action>> work)
     {
         session.Busy = true;
@@ -330,9 +359,11 @@ public sealed partial class AbilityDraftPlugin : DeadworksPluginBase
     {
         var hadRoom = session.View is not null;
         session.View = reply.State;
+        if (reply.LastActivityUtc is { } activity && activity > session.LastActivityUtc) session.LastActivityUtc = activity;
         var player = Players.FromSlot(session.Slot)!;
         if (useWebsite)
         {
+            UI.Panel(PanelId).Set(player.Recipients, "nativeChat", JsonSerializer.Serialize(reply.NativeChat, Json));
             if (reply.ExternalLink is { } link)
             {
                 UI.Panel(PanelId).Set(player.Recipients, "externalUrl", WebsiteNavigation.External(websiteOrigin, link.Url));
@@ -419,6 +450,7 @@ public sealed partial class AbilityDraftPlugin : DeadworksPluginBase
         }
         game.TickHeroAssignments();
         applier.Tick(DateTime.UtcNow);
+        PublishAbilityHud();
         if (useWebsite)
             foreach (var session in sessions.Values)
                 if (!session.UiWarningShown && DateTime.UtcNow >= session.UiDeadline && !session.UiReady)
@@ -430,6 +462,7 @@ public sealed partial class AbilityDraftPlugin : DeadworksPluginBase
                 }
         if (workerResult is not null) { TickMatchWorker(); return; }
         TickHostLease();
+        TickLobbyInactivity();
         if (requestedStartHost is { } host && runtimeResult is { } result && preparedResult == result.ResultId)
         {
             requestedStartHost = null;
@@ -469,13 +502,20 @@ public sealed partial class AbilityDraftPlugin : DeadworksPluginBase
     }
     public override void OnClientDisconnect(ClientDisconnectedEvent args)
     {
+        inactivity.Remove(args.Slot); lastInputButtons.Remove(args.Slot);
+        if (workerResult is not null) matchLifetime.Observe(DateTime.UtcNow, ConnectedMatchPlayers(args.Slot));
+        itemPurchases.Remove(args.Slot);
         foreach (var steam in sessions.Where(s => s.Value.Slot == args.Slot).Select(s => s.Key).ToArray())
         {
             sessions.Remove(steam);
             game.Forget(steam);
-            applier.PlayerDisconnected(steam);
-            if (!matchReleased && preparedResult is { } resultId && !IsMatchSpectator(steam))
-                ApplicationFailed(resultId, "A prepared player disconnected. Reconnect and prepare their hero again.");
+            if (workerResult is not null && !matchReleased && !IsMatchSpectator(steam)) ResetWorkerPreparation();
+            else
+            {
+                applier.PlayerDisconnected(steam);
+                if (!matchReleased && preparedResult is { } resultId && !IsMatchSpectator(steam))
+                    ApplicationFailed(resultId, "A prepared player disconnected. Reconnect and prepare their hero again.");
+            }
             if (workerResult is null) _ = Disconnect(steam);
         }
     }
@@ -490,6 +530,9 @@ public sealed partial class AbilityDraftPlugin : DeadworksPluginBase
     }
     public override void OnStartupServer()
     {
+        itemPurchases.Clear();
+        inactivity.Clear(); lastInputButtons.Clear(); nextInactivityCheck = 0; matchLifetime = new();
+        shopClients.Clear();
         game.Clear(); lastLanes.Clear(); lastIntroLanes.Clear(); observerControllers.Clear(); nextLaneAudit = 0;
         preparationArea.Release();
         applier = new(game, new DraftPreparationGate(PlayersPrepared, ApplicationFailed), Log);
@@ -542,6 +585,9 @@ public sealed partial class AbilityDraftPlugin : DeadworksPluginBase
     public override bool OnGameStateChanging(EGameState currentState, EGameState newState)
     {
         if (IsDraftHub) return newState is not (EGameState.HeroSelection or EGameState.PreGameWait or EGameState.GameInProgress);
+        // Our roster/empty timer owns abandonment. Native empty-team detection
+        // must not end the match before its reconnect window has elapsed.
+        if (workerResult is not null && newState == EGameState.Abandoned && !matchLifetime.HasExpired(DateTime.UtcNow)) return false;
         // The engine must know the drafted heroes before it builds their match intro.
         if (workerResult is not null && preparedResult != workerResult.ResultId &&
             newState is EGameState.MatchIntro or EGameState.WaitForMapToLoad or EGameState.PreGameWait or EGameState.GameInProgress) return false;
@@ -657,9 +703,12 @@ public sealed partial class AbilityDraftPlugin : DeadworksPluginBase
     }
     public override void OnUnload()
     {
+        itemPurchases.Clear();
+        shopClients.Clear();
         stop.Cancel();
         UI.AddonStatusChanged -= AddonStatus;
         UI.Panel(PanelId).On("command", _ => { });
+        UI.Panel(PanelId).On("shopReady", _ => { });
         UI.Panel(PanelId).DestroyLayout(RecipientFilter.All);
         game.Clear();
         http.Dispose();

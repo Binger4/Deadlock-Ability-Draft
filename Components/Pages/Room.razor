@@ -70,14 +70,6 @@ else
                     <p>Custom base: <strong>@ModeLabel(CurrentRoom.Config.CustomBaseDraftMode)</strong></p>
                 }
                 <div class="room-share-row">
-                    @if (InGameOptions.Value.Enabled && CurrentClient is not null && CurrentClient.SteamId64 is null && CurrentRoom.RuntimeResultId is null)
-                    {
-                        <button class="copy-chip" @onclick="CreateInGameLink">Link to Deadworks</button>
-                        @if (!string.IsNullOrEmpty(InGameLink))
-                        {
-                            <small>Private link code (5 minutes): <code>@InGameLink</code></small>
-                        }
-                    }
                     @if (!GameDisplay)
                     {
                         <button class="copy-chip" title="Copy hidden lobby code" @onclick="CopyRoomCode">
@@ -268,7 +260,7 @@ else
                         @if (CurrentRoom.Status == DraftRoomStatus.Completed)
                         {
                             <span>Draft complete</span>
-                            <strong>@(GameDisplay ? CurrentRoom.IsPublicQueue ? "Draft complete. PLAY DRAFT unlocks after 15 seconds." : IsHost ? "Your draft is ready. Use PLAY DRAFT above." : "Your draft is ready. Waiting for the host to start the match." : "Generate the mod files below")</strong>
+                            <strong>@(GameDisplay ? CurrentRoom.IsPublicQueue ? "Draft complete. START MATCH unlocks after 15 seconds." : IsHost ? "Your draft is ready. Use START MATCH above." : "Your draft is ready. Waiting for the host to start the match." : "Generate the mod files below")</strong>
                         }
                         else
                         {
@@ -523,8 +515,6 @@ else
     private int LobbyMaxPlayers = 12;
     private bool LobbyFlexibleUltimates;
     private bool LobbyBlindDraft;
-    private string? InGameLink;
-    private void CreateInGameLink() => Try(() => InGameLink = InGameAdapter.CreateLinkCode(Code, PlayerId ?? string.Empty));
     private bool LobbyFullRandom;
     private int LobbyPreparationSeconds;
     private int LobbyPickSeconds;
@@ -1383,12 +1373,16 @@ else
                             title="@(IsSpectator ? "Spectator chat only" : "Toggle chat scope")"
                             disabled="@IsSpectator"
                             @onclick="ToggleChatScope">@ChatScopeLabel(CurrentChatScope)</button>
-                    <input maxlength="300"
-                           placeholder="Message"
-                           @bind="ChatText"
-                           @bind:event="oninput"
-                           @onkeydown="HandleChatKey" />
-                    <button @onclick="SendChat">Send</button>
+                    @if (GameDisplay)
+                    {
+                        <button class="native-chat-open" @onclick="OpenNativeChat">Message…</button>
+                    }
+                    else
+                    {
+                        <input maxlength="300" placeholder="Message" @bind="ChatText"
+                               @bind:event="oninput" @onkeydown="HandleChatKey" />
+                        <button @onclick="SendChat">Send</button>
+                    }
                 </div>
             }
         }
@@ -1493,6 +1487,8 @@ else
         }
 
         ChatScope = ChatScope == DraftChatScope.Allies ? DraftChatScope.All : DraftChatScope.Allies;
+        if (GameDisplay)
+            Try(() => InGameAdapter.UpdateNativeChatScope(Code, PlayerId ?? string.Empty, CurrentChatScope));
     }
 
     private void ToggleChatCollapsed() => ChatCollapsed = !ChatCollapsed;
@@ -1511,6 +1507,8 @@ else
             SetMessage(ex.Message);
         }
     }
+
+    private void OpenNativeChat() => Try(() => InGameAdapter.OpenNativeChat(Code, PlayerId ?? string.Empty, CurrentChatScope));
 
     private void HandleChatKey(KeyboardEventArgs args)
     {

@@ -10,8 +10,10 @@ foreach (var required in new[] { "panorama/layout/hud_hideout.vxml_c", "panorama
     if (!File.Exists(Path.Combine(source, required)))
         throw new InvalidOperationException("The player VPK must include the Deadworks UI bridge: " + required);
 using var package = new Package();
+var resourceDirectory = Path.Combine(source, "resource");
 var files = Directory.GetFiles(Path.Combine(source, "panorama"), "*_c", SearchOption.AllDirectories)
-    .Concat(Directory.GetFiles(Path.Combine(source, "resource"), "*", SearchOption.AllDirectories)).ToArray();
+    .Concat(Directory.Exists(resourceDirectory)
+        ? Directory.GetFiles(resourceDirectory, "*", SearchOption.AllDirectories) : []).ToArray();
 foreach (var file in files.Order(StringComparer.Ordinal))
     package.AddFile(Path.GetRelativePath(source, file).Replace('\\', '/'), File.ReadAllBytes(file));
 Directory.CreateDirectory(Path.GetDirectoryName(output)!);

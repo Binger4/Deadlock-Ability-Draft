@@ -1,10 +1,11 @@
+param([string]$DeadworksReleaseDirectory = (Join-Path $PSScriptRoot '../Tools/DeadworksRelease/v0.5.3'))
 # Close the game and servers before installing.
 $ErrorActionPreference = 'Stop'
 $config = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'local/settings.json') -Raw | ConvertFrom-Json
 $gameRoot = (Resolve-Path -LiteralPath $config.GameRoot).Path
 if (!(Test-Path -LiteralPath (Join-Path $gameRoot 'game/bin/win64/deadlock.exe'))) { throw 'This is not a Deadlock installation.' }
 if (Get-Process deadlock,deadworks -ErrorAction SilentlyContinue) { throw 'Close Deadlock and Deadworks before installing.' }
-$release = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '../Tools/DeadworksRelease/v0.4.16')).Path
+$release = (Resolve-Path -LiteralPath $DeadworksReleaseDirectory).Path
 $plugin = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot 'Deadworks/bin/Debug/net10.0')).Path
 $base = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot 'dist/ability_draft_base.vpk')).Path
 $baseHash = (Get-FileHash -LiteralPath $base).Hash
@@ -95,5 +96,5 @@ if ($search[0].Groups[2].Value -notmatch '(?m)^[\t ]*Game[\t ]+citadel/addons[\t
 $staged = Join-Path $PSScriptRoot 'local/gameinfo.abilitydraft.gi'
 [IO.File]::WriteAllText($staged,$info,[Text.UTF8Encoding]::new($false))
 Install-File $staged 'game/citadel/gameinfo.gi'
-Write-Output "Installed base UI and Deadworks v0.4.16. Backup: $backup"
+Write-Output "Installed base UI and Deadworks from $release. Backup: $backup"
 Write-Output 'Use Restore-LocalInstall.ps1 with this backup to restore the previous files.'

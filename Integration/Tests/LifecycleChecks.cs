@@ -22,7 +22,9 @@ static class LifecycleChecks
         adapter.Disconnect(first);
         var now = DateTime.UtcNow;
         adapter.ReconcileMatches(new Dictionary<string,string>(), now);
-        adapter.ReconcileMatches(new Dictionary<string,string>(), now.AddSeconds(16));
+        adapter.ReconcileMatches(new Dictionary<string,string>(), now.AddSeconds(119));
+        Check(rooms.GetRoom(newRoom.Code) is not null, "Empty custom room stays available throughout the two-minute grace");
+        adapter.ReconcileMatches(new Dictionary<string,string>(), now.AddSeconds(120));
         Check(rooms.GetRoom(newRoom.Code) is null && adapter.CurrentState(first) is null,
             "An empty disconnected game draft expires without trapping its Steam membership");
         var playing = adapter.Execute(first, new("create", Name: "Transfer test")).State!;

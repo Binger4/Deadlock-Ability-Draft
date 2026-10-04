@@ -37,6 +37,11 @@ public static class InGameEndpoints
 
     public static void MapInGameIntegration(this WebApplication app)
     {
+        app.MapPost("/ingame-activity", (WebsiteActivity activity, InGameRoomAdapter adapter) =>
+        {
+            try { adapter.RecordWebsiteActivity(activity); return Results.NoContent(); }
+            catch (InvalidOperationException) { return Results.BadRequest(); }
+        }).RequireRateLimiting("ingame");
         app.MapGet("/project-links/{index:int}", (int index, HttpContext http, ProjectLinksService links) =>
         {
             http.Response.Headers.CacheControl = "no-store";
@@ -95,7 +100,10 @@ public static class InGameEndpoints
         group.MapPost("/command", (RoomCommand command, HttpContext http, InGameRoomAdapter adapter) =>
             adapter.Execute(http.Request.Headers["X-Steam-Id"].ToString(), command));
         group.MapGet("/state", (HttpContext http, InGameRoomAdapter adapter) =>
-            new CommandReply(adapter.CurrentState(http.Request.Headers["X-Steam-Id"].ToString()), ExternalLink: adapter.WebsiteLink(http.Request.Headers["X-Steam-Id"].ToString())));
+            new CommandReply(adapter.CurrentState(http.Request.Headers["X-Steam-Id"].ToString()),
+                ExternalLink: adapter.WebsiteLink(http.Request.Headers["X-Steam-Id"].ToString()),
+                NativeChat: adapter.NativeChat(http.Request.Headers["X-Steam-Id"].ToString()),
+                LastActivityUtc: adapter.LastWebsiteActivity(http.Request.Headers["X-Steam-Id"].ToString())));
         group.MapGet("/result", (HttpContext http, InGameRoomAdapter adapter) =>
             adapter.Result(http.Request.Headers["X-Steam-Id"].ToString()));
         group.MapPost("/match", (HttpContext http, InGameRoomAdapter adapter, MatchWorkerCoordinator workers, ServerDeadlockDataService data) =>

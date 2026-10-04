@@ -2104,6 +2104,7 @@ h3 {
     grid-template-columns: auto minmax(0, 1fr) auto;
     gap: .45rem;
 }
+.native-chat-open { flex: 1; text-align: left; color: var(--muted, #b4c1b6); }
 
 .chat-scope-toggle {
     min-width: 74px;

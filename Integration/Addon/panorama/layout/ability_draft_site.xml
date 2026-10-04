@@ -9,6 +9,8 @@
         <include src="file://{resources}/scripts/ability_draft_site_config.js" />
         <include src="file://{resources}/scripts/ability_draft_assets.js" />
         <include src="file://{resources}/scripts/ability_draft_match.js" />
+        <include src="file://{resources}/scripts/ability_draft_upgrades.js" />
+        <include src="file://{resources}/scripts/ability_draft_chat.js" />
         <include src="file://{resources}/scripts/ability_draft_site.js" />
     </scripts>
     <Panel hittest="false" style="width: 100%; height: 100%;">
@@ -25,7 +27,7 @@
                 <Button id="JoinLobby" class="ADButton"><Label text="JOIN BY CODE" /></Button>
                 <Button id="PublicQueue" class="ADButton"><Label text="FIND PUBLIC MATCH" /></Button>
                 <Button id="FinalizeResult" class="ADButton Primary"><Label text="LOCK DRAFT FOR MATCH" /></Button>
-                <Button id="PlayDraft" class="ADButton Primary"><Label id="PlayDraftLabel" text="PLAY DRAFT" /><Label id="PlayDraftCountdown" /></Button>
+                <Button id="PlayDraft" class="ADButton Primary"><Label id="PlayDraftLabel" text="START MATCH" /><Label id="PlayDraftCountdown" /></Button>
                 <Button id="ResumeMatch" class="ADButton Primary"><Label id="ResumeMatchLabel" text="RETURN TO MATCH" /></Button>
                 <Button id="AbandonMatch" class="ADButton Danger"><Label id="AbandonLabel" text="ABANDON MATCH" /></Button>
                 <Button id="ApplySelf" class="ADButton"><Label text="PREPARE MY HERO" /></Button>
@@ -50,8 +52,16 @@
                 </Panel>
                 <CitadelHTMLPanel id="DraftWebsite" acceptsinput="true" acceptsfocus="true" canfocus="true" hittest="true" />
             </Panel>
+            <Panel id="NativeChatDock" hittest="true" visible="false">
+                <Panel id="NativeChatRow">
+                    <Label id="NativeChatHeading" text="MESSAGE" />
+                    <TextEntry id="NativeChatInput" maxchars="300" multiline="false" canfocus="true" placeholder="Message" />
+                    <Button id="NativeChatSend" class="ADButton Primary"><Label text="SEND" /></Button>
+                    <Button id="NativeChatCancel" class="ADButton Quiet"><Label text="CLOSE" /></Button>
+                </Panel>
+                <Label id="NativeChatError" text="" />
+            </Panel>
             <Label id="siteStatus" text="Connecting…" />
-
         </Panel>
         <Button id="OpenSite" class="ADButton" hittest="true"><Label id="OpenSiteLabel" text="ABILITY DRAFT" /></Button>
         <Panel id="AbilityDraftTooltipHost" hittest="false" hittestchildren="false" />

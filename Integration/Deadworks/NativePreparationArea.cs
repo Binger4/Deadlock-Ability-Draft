@@ -28,6 +28,8 @@ public sealed class NativePreparationArea(DeadworksRuntime game, Action<string> 
             .OrderBy(e => Vector3.DistanceSquared(e.Position, patron.Position)).ToArray();
         if (spawns.Length == 0) throw new InvalidOperationException("This map has no team spawn points for preparation.");
         var spawn = spawns[held.Count % Math.Min(6, spawns.Length)].Position;
+        if (Environment.GetEnvironmentVariable("ABILITYDRAFT_TRACE_MATCH_START") == "1")
+            log($"Preparation spawn slot {pawn.Controller?.Slot}: native={pawn.Position}, base={spawn}");
         pawn.Teleport(position: spawn, velocity: Vector3.Zero);
         held[steamId] = new(spawn, GlobalVars.CurTime);
         log($"Preparation base spawn selected for slot {pawn.Controller?.Slot}, team {team}");

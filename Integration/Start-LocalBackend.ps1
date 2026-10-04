@@ -10,6 +10,16 @@ $dotnetExe = if ($dotnetCommand) { $dotnetCommand.Source } else {
 if (!(Test-Path -LiteralPath $dotnetExe)) {
     throw 'The .NET SDK was not found. Install the .NET 10 SDK, then reopen this startup shortcut.'
 }
+$websiteUrl = if ($config.WebsiteUrl) { $config.WebsiteUrl } else { 'https://localhost:7050/' }
+$website = [Uri]$websiteUrl
+$listenUrls = $config.BackendUrl
+if ($website.IsLoopback -and $website.Scheme -eq 'https') {
+    & $dotnetExe dev-certs https --check --trust | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Local HTTPS needs a trusted development certificate. Run dotnet dev-certs https --trust, approve the Windows prompt, then fully restart Steam. See Integration/RUNNING.md.'
+    }
+    $listenUrls += ';' + $websiteUrl
+}
 $env:InGame__Enabled = 'true'
 $env:InGame__PublicQueueEnabled = 'true'
 $env:InGame__ServerKey = $config.ServerKey
@@ -23,7 +33,7 @@ $env:InGame__DraftServers__Enabled = if ($SeparateMatches) { 'true' } else { 'fa
 $env:InGame__DraftServers__GameRoot = $config.GameRoot
 $env:InGame__DraftServers__StateDirectory = Join-Path $PSScriptRoot 'local/drafting'
 $env:InGame__DraftServers__BackendUrl = $config.BackendUrl
-$env:InGame__DraftServers__WebsiteUrl = 'http://localhost:5050/'
+$env:InGame__DraftServers__WebsiteUrl = $websiteUrl
 $env:InGame__DraftServers__CustomPort = [string]$config.ServerPort
 $env:InGame__DraftServers__PublicPort = [string]($config.ServerPort + 1)
 $env:DeadlockData__AutomaticUpdatesEnabled = 'false'
@@ -34,5 +44,5 @@ $env:DeadPacker__ExecutablePath = Join-Path $repo 'Tools/DeadPacker/DeadPacker.e
 $env:DeadPacker__OutputVpkPath = Join-Path $PSScriptRoot 'local/generated/draft.vpk'
 $env:ASPNETCORE_ENVIRONMENT = 'Development'
 Set-Location -LiteralPath $repo
-& $dotnetExe run --project abilitydraft.csproj --no-build --no-launch-profile --urls $config.BackendUrl
+& $dotnetExe run --project abilitydraft.csproj --no-build --no-launch-profile --urls $listenUrls
 if ($LASTEXITCODE -ne 0) { throw 'Local backend stopped with an error.' }

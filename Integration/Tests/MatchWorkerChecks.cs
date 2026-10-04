@@ -47,15 +47,23 @@ static class MatchWorkerChecks
         WriteReport(host.Launches[4], new(empty.ResultId, "Playing", 0, 1, now));
         coordinator.Poll(now);
         Check(!host.Processes[4].Stopped, "Empty playing worker allows a reconnect grace period");
-        WriteReport(host.Launches[4], new(empty.ResultId, "Playing", 1, 1, now.AddSeconds(100)));
-        coordinator.Poll(now.AddSeconds(100));
+        WriteReport(host.Launches[4], new(empty.ResultId, "Playing", 0, 1, now.AddSeconds(119)));
+        coordinator.Poll(now.AddSeconds(119));
+        Check(!host.Processes[4].Stopped, "Empty worker remains joinable at 119 seconds");
+        WriteReport(host.Launches[4], new(empty.ResultId, "Playing", 1, 1, now.AddSeconds(119.5)));
+        coordinator.Poll(now.AddSeconds(119.5));
         WriteReport(host.Launches[4], new(empty.ResultId, "Playing", 0, 1, now.AddSeconds(130)));
         coordinator.Poll(now.AddSeconds(130));
         Check(!host.Processes[4].Stopped, "A returning player resets the empty-match watchdog");
-        WriteReport(host.Launches[4], new(empty.ResultId, "Playing", 0, 1, now.AddSeconds(251)));
-        coordinator.Poll(now.AddSeconds(251));
+        WriteReport(host.Launches[4], new(empty.ResultId, "Playing", 0, 1, now.AddSeconds(249)));
+        coordinator.Poll(now.AddSeconds(249));
+        Check(!host.Processes[4].Stopped, "A second disconnection gets a fresh two-minute window");
+        WriteReport(host.Launches[4], new(empty.ResultId, "Playing", 0, 1, now.AddSeconds(250)));
+        coordinator.Poll(now.AddSeconds(250));
         Check(coordinator.Get(empty.ResultId) is { State: "Completed", Address: null } && host.Processes[4].Stopped,
             "An abandoned empty match releases its owned worker and port");
+        Check(coordinator.Request(empty, catalog) is { State: "Completed", Address: null } && host.Launches.Count == 5,
+            "Requesting an expired result cannot recreate the match");
         var exited = result with { ResultId = "completed-exit" };
         coordinator.Request(exited, catalog);
         WriteReport(host.Launches[5], new(exited.ResultId, "Completed", 1, 1, now));
@@ -71,6 +79,37 @@ static class MatchWorkerChecks
         CheckConcurrentAndAbandon(temporary, result, catalog);
         CheckLateArrival(temporary, result, catalog);
         CheckSpectators(temporary, result, catalog);
+        CheckEmptyTermination(temporary, result, catalog);
+    }
+    private static void CheckEmptyTermination(string temporary, DraftResult solo, DraftResourceCatalog catalog)
+    {
+        var config = new MatchWorkerOptions { Enabled = true, StateDirectory = Path.Combine(temporary, "empty-termination") };
+        var host = new FakeHost();
+        using var coordinator = new MatchWorkerCoordinator(Options.Create(config), host, NullLogger<MatchWorkerCoordinator>.Instance);
+        var group = solo with { ResultId = "empty-abandon", Players = [solo.Players[0], solo.Players[0] with { ParticipantId = "two", SteamId64 = "76561198000000002" }] };
+        coordinator.Request(group, catalog);
+        var now = DateTime.UtcNow;
+        WriteReport(host.Launches[0], new(group.ResultId, "Playing", 0, 2, now)); coordinator.Poll(now);
+        coordinator.Abandon(group.ResultId, group.Players[0].SteamId64!);
+        Check(!host.Processes[0].Stopped, "One abandon during empty grace preserves the other player's return");
+        coordinator.Abandon(group.ResultId, group.Players[1].SteamId64!);
+        Check(host.Processes[0].Stopped && coordinator.Request(group, catalog) is { State: "Completed", Address: null },
+            "Everyone abandoning ends the match immediately during the grace window and prevents restart");
+        var ended = solo with { ResultId = "ended-before-poll" };
+        coordinator.Request(ended, catalog);
+        File.WriteAllText(Path.Combine(host.Launches[1].Directory,"ended.json"), "Empty timeout");
+        host.Processes[1].Stop(); coordinator.Poll(now);
+        Check(coordinator.Request(ended,catalog) is { State: "Completed", Address: null } && host.Launches.Count == 2,
+            "A worker exiting at the empty deadline is terminal, not a retryable crash");
+        var preparing = solo with { ResultId = "empty-preparation" };
+        coordinator.Request(preparing, catalog);
+        WriteReport(host.Launches[2], new(preparing.ResultId, "Ready", 1, 1, now)); coordinator.Poll(now);
+        WriteReport(host.Launches[2], new(preparing.ResultId, "Ready", 0, 1, now.AddSeconds(5))); coordinator.Poll(now.AddSeconds(5));
+        WriteReport(host.Launches[2], new(preparing.ResultId, "Ready", 0, 1, now.AddSeconds(124))); coordinator.Poll(now.AddSeconds(124));
+        Check(!host.Processes[2].Stopped, "Leaving during preparation also allows two minutes to reconnect");
+        WriteReport(host.Launches[2], new(preparing.ResultId, "Ready", 0, 1, now.AddSeconds(125))); coordinator.Poll(now.AddSeconds(125));
+        Check(coordinator.Get(preparing.ResultId)?.State == "Completed" && host.Processes[2].Stopped,
+            "An empty preparation server also closes permanently after two minutes");
     }
     private static void CheckSpectators(string temporary, DraftResult result, DraftResourceCatalog catalog)
     {
@@ -116,7 +155,7 @@ static class MatchWorkerChecks
         Check(host.Processes[0].Stopped, "Bots do not keep an abandoned human match alive");
         coordinator.Request(mixed with { ResultId = "bots-empty" }, catalog);
         WriteReport(host.Launches[1], new("bots-empty", "Playing", 0, 1, now)); coordinator.Poll(now);
-        WriteReport(host.Launches[1], new("bots-empty", "Playing", 0, 1, now.AddSeconds(16))); coordinator.Poll(now.AddSeconds(16));
+        WriteReport(host.Launches[1], new("bots-empty", "Playing", 0, 1, now.AddSeconds(120))); coordinator.Poll(now.AddSeconds(120));
         Check(host.Processes[1].Stopped, "Empty-human watchdog reclaims a worker containing bots");
     }
     private static void CheckLateArrival(string temporary, DraftResult result, DraftResourceCatalog catalog)

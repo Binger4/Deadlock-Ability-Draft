@@ -33,6 +33,8 @@ public sealed partial class AbilityDraftPlugin
     public override bool OnClientConnect(ClientConnectEvent args)
     {
         if (workerResult is null) return true;
+        if (workerState is "Completed" or "Failed" || matchLifetime.HasExpired(DateTime.UtcNow) ||
+            File.Exists(Path.Combine(workerDirectory!, "ended.json"))) return false;
         // Read admission before accepting a late observer, avoiding an address/polling race.
         HashSet<string> abandoned;
         try { abandoned = RefreshSpectatorAdmission(); }
@@ -85,6 +87,17 @@ public sealed partial class AbilityDraftPlugin
 
     private void TickMatchWorker()
     {
+        TickInactivity();
+        matchLifetime.Observe(DateTime.UtcNow, ConnectedMatchPlayers());
+        if (matchLifetime.HasExpired(DateTime.UtcNow))
+        {
+            // Durable terminal marker comes before process exit. The supervisor
+            // must not classify this exit as a retryable crash.
+            workerState = "Completed";
+            File.WriteAllText(Path.Combine(workerDirectory!, "ended.json"), "Nobody rejoined within two minutes.");
+            Server.ExecuteCommand("quit");
+            return;
+        }
         var reserved = workerResult!;
         var result = reserved with { Players = reserved.Players.Where(p => p.IsBot || !workerAbandoned.Contains(p.SteamId64!)).ToArray(), Spectators = workerSpectators.Values.ToArray() };
         if (GameRules.IsValid && workerState == "Starting") workerState = "Ready";
@@ -102,7 +115,7 @@ public sealed partial class AbilityDraftPlugin
             }
         }
         if (!workerPreparing && workerState == "Ready" && result.Players.Length > 0 && count == required &&
-            GameRules.GameState is EGameState.WaitingForPlayersToJoin or EGameState.HeroSelection)
+            GameRules.GameState is EGameState.WaitingForPlayersToJoin or EGameState.HeroSelection or EGameState.MatchIntro or EGameState.WaitForMapToLoad or EGameState.PreGameWait)
         {
             try
             {
@@ -148,7 +161,7 @@ public sealed partial class AbilityDraftPlugin
         {
             workerReporting = true;
             nextWorkerReport = DateTime.UtcNow.AddSeconds(3);
-            var report = new MatchWorkerReport(reserved.ResultId, workerState, count, reserved.Players.Count(p => !p.IsBot), DateTime.UtcNow);
+            var report = new MatchWorkerReport(reserved.ResultId, workerState, count, reserved.Players.Count(p => !p.IsBot), DateTime.UtcNow, matchLifetime.EmptySinceUtc);
             _ = Task.Run(() =>
             {
                 var ownerAlive = false;
@@ -174,7 +187,7 @@ public sealed partial class AbilityDraftPlugin
                     {
                         workerLastCount = -1; // Refresh the waiting roster even if player count did not change.
                         if (workerPreparing && !matchReleased && abandoned.Except(workerAbandoned).Any(reserved.IsPlayer))
-                            ApplicationFailed(reserved.ResultId, "A player abandoned during hero preparation. The remaining host can retry the match.");
+                            ResetWorkerPreparation();
                     }
                     workerAbandoned = abandoned;
                     foreach (var (steam, session) in sessions)
@@ -187,5 +200,16 @@ public sealed partial class AbilityDraftPlugin
                 });
             });
         }
+    }
+
+    private void ResetWorkerPreparation()
+    {
+        // Leaving before gameplay is reconnectable too. Cancel only the pending
+        // preparation and reapply when the remaining roster is back together.
+        preparationArea.Release(); preparation.Reset(); preparedResult = null; workerPreparing = false; workerLastCount = -1;
+        foreach (var participant in workerResult!.Players) game.Forget(RuntimePlayerId.For(participant));
+        applier = new(game, new DraftPreparationGate(PlayersPrepared, ApplicationFailed), Log);
+        if (GameRules.IsValid && GameRules.GameState == EGameState.PreGameWait) GameRules.SetGameStateEndTime(-1);
+        Log("Player left during preparation; waiting for reconnect or abandonment.");
     }
 }

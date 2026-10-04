@@ -2,13 +2,21 @@
     'use strict';
     var panel, browser, alive = false, loadedUrl = '', websiteVisible = false, closed = false, started = false, transferred = '';
     var lastExternalLink = '';
+    var lastItemPurchase = '';
     var codeRevealed = false, lastCode = '', exiting = false, confirmAbandon = false, preparing = false, intro = false;
     function send(operation) { panel.send('command', encodeURIComponent(JSON.stringify({ operation: operation }))); }
+    function focusWebsite() {
+        if (alive && websiteVisible && !exiting && !browser.BHasKeyFocus()) {
+            browser.SetFocus();
+        }
+    }
     function websiteInput(enabled) {
         if (!browser) return;
+        panel.find('SiteScreen').SetTopOfInputContext(enabled);
+        browser.SetAcceptsFocus(enabled);
         if (typeof browser.SetAcceptsInput === 'function') browser.SetAcceptsInput(enabled);
         if (typeof browser.SetIgnoreCursor === 'function') browser.SetIgnoreCursor(!enabled);
-        if (enabled) browser.SetFocus();
+        if (enabled) focusWebsite();
     }
     function openWebsite() {
         var url = panel.get('websiteUrl', '');
@@ -18,11 +26,24 @@
             panel.find('siteStatus').visible = true;
             return;
         }
-        try { browser.SetURL(url); loadedUrl = url; }
+        try {
+            $.Msg('[AbilityDraftSite] navigating to ' + url.split('?')[0]);
+            browser.SetURL(url); loadedUrl = url; focusWebsite();
+        }
         catch (error) { $.Msg('[AbilityDraftSite] navigation failed: ' + error); }
     }
     function render() {
         AbilityDraftWaitingStatus.update(panel);
+        var purchase = panel.get('itemPurchase', '');
+        if (purchase && purchase !== lastItemPurchase) {
+            lastItemPurchase = purchase;
+            try {
+                var request = JSON.parse(purchase);
+                if (typeof request.id === 'string' && request.id.length === 32 && /^[a-f0-9]{32}$/.test(request.id) &&
+                    typeof request.item === 'string' && /^upgrade_[a-z0-9_]{1,100}$/.test(request.item) && request.item.indexOf('\n') < 0)
+                    $.DispatchEvent('CitadelConCommand', 'buyitem ' + request.item);
+            } catch (_) { $.Msg('[AbilityDraftSite] Invalid shop request'); }
+        }
         var externalId = panel.get('externalLinkId', ''), externalUrl = panel.get('externalUrl', '');
         if (externalId && externalId !== lastExternalLink &&
             ((externalUrl === 'https://github.com/Binger4' || externalUrl === 'https://github.com/Binger4/Deadlock-Ability-Draft' || externalUrl === 'https://discord.gg/SxQjYeA7aW') ||
@@ -50,12 +71,11 @@
         if (!intro && panel.get('nativeIntro', '0') === '1') { intro = true; closed = true; }
         if (!preparing && panel.get('preparationStarted', '0') === '1') { preparing = true; closed = true; }
         if (!started && panel.get('matchStarted', '0') === '1') { started = true; closed = true; }
-        panel.find('DraftWebsite').visible = showWebsite;
+        browser.visible = showWebsite;
         panel.find('WaitingScreen').visible = !showWebsite && screen !== 'match';
         panel.find('MatchScreen').visible = screen === 'match';
         if (screen === 'match') AbilityDraftMatch.render(panel);
         panel.text('OpenSiteLabel', 'ABILITY DRAFT');
-        if (websiteVisible !== (showWebsite && !closed)) { websiteVisible = showWebsite && !closed; websiteInput(websiteVisible); }
         panel.find('CreateLobby').visible = role === 'custom' && !queued && !inRoom && screen !== 'connecting';
         panel.find('JoinLobby').visible = role === 'custom' && !queued && !inRoom && screen !== 'connecting';
         panel.find('PublicQueue').visible = role === 'public' && !queued && !inRoom && screen === 'entry';
@@ -93,15 +113,28 @@
         panel.find('BeginMatch').visible = !localMatch && panel.get('canStartMatch', '0') === '1';
         panel.find('SiteScreen').visible = !closed;
         panel.find('OpenSite').visible = closed;
+        // Focus only after the HTML panel and its parent are visible. Toolbar
+        // clicks and navigation can otherwise leave keyboard input in Panorama.
+        if (websiteVisible !== (showWebsite && !closed)) { websiteVisible = showWebsite && !closed; websiteInput(websiteVisible); }
+        AbilityDraftChat.render(websiteVisible && !exiting);
         if (closed || screen !== 'match') AbilityDraftMatch.hideTooltip();
         openWebsite();
     }
     DW.registerPanel({
         init: function (p) {
-            panel = p; alive = true; browser = p.find('DraftWebsite'); loadedUrl = ''; closed = false; started = false; transferred = '';
+            panel = p; alive = true;
+            browser = p.find('DraftWebsite');
+            AbilityDraftChat.init(p, function (open) {
+                // Keep HTML mouse input enabled while native text has keyboard
+                // focus. Disabling it leaves CHTML's cursor at the Message
+                // button, so the next click elsewhere can activate chat again.
+                if (!open) focusWebsite();
+            });
+            loadedUrl = ''; websiteVisible = false; closed = false; started = false; transferred = '';
             codeRevealed = false; lastCode = ''; exiting = false; confirmAbandon = false; preparing = false; intro = false;
+            lastItemPurchase = p.get('itemPurchase', '');
             AbilityDraftMatch.reset();
-            $.Msg('[AbilityDraftSite] native HTML.SetURL: ' + typeof browser.SetURL);
+            browser.SetPanelEvent('onactivate', focusWebsite);
             p.onClick('CloseSite', function () {
                 // A draft hub has no playable pawn behind the website. Hiding the UI
                 // there leaves a black screen; leave the hub, retaining reconnect rules.
@@ -129,11 +162,13 @@
             p.onClick('ApplySelf', function () { send('applySelf'); });
             p.onClick('BeginMatch', function () { send('startMatch'); });
             render();
+            p.send('shopReady', '1');
             // The engine creates/replaces the native HUD after the addon and can update its
             // visibility independently of DW state. Continue even while our overlay is closed.
             function watchWaitingHud() {
                 if (!alive) return;
                 AbilityDraftWaitingStatus.update(panel);
+                AbilityDraftUpgrades.update(panel);
                 $.Schedule(0.2, watchWaitingHud);
             }
             $.Schedule(0.2, watchWaitingHud);
@@ -144,6 +179,6 @@
             });
         },
         render: render,
-        onDestroy: function () { alive = false; AbilityDraftMatch.reset(); AbilityDraftWaitingStatus.restore(); }
+        onDestroy: function () { AbilityDraftChat.destroy(); websiteInput(false); alive = false; websiteVisible = false; AbilityDraftMatch.reset(); AbilityDraftWaitingStatus.restore(); AbilityDraftUpgrades.restore(); }
     });
 }());

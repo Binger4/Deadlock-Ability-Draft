@@ -26,6 +26,7 @@ Expect(() => WebsiteNavigation.Origin("http://draft.example.org/"), "Remote webs
 Expect(() => WebsiteNavigation.Origin("https://user:password@draft.example.org/"), "Website origin cannot contain credentials");
 Expect(() => WebsiteNavigation.Participant(WebsiteNavigation.Origin("https://draft.example.org/"), "//other.example.org/room"), "Website navigation cannot redirect to another host");
 MatchWorkerChecks.Run(temporary);
+InactivityChecks.Run();
 DraftServerChecks.Run(temporary);
 PresetChecks.Run();
 StatsChecks.Run(temporary);
@@ -78,6 +79,9 @@ var backend = new DraftBackendClient(http, new Uri(app.Urls.Single()), new strin
 var rooms = app.Services.GetRequiredService<DraftRoomService>();
 var adapter = app.Services.GetRequiredService<InGameRoomAdapter>();
 LifecycleChecks.Run(adapter, rooms);
+NativeChatChecks.Run(adapter, rooms);
+using (var activityHttp = new HttpClient { BaseAddress = new Uri(app.Urls.Single()) })
+    await WebsiteActivityChecks.Run(activityHttp, adapter, rooms);
 const string host = "76561198000000001", other = "76561198000000002", spectator = "76561198000000003";
 using (var catalogRequest = new HttpRequestMessage(HttpMethod.Get, new Uri(new Uri(app.Urls.Single()), "/api/ingame/v1/catalog")))
 {
@@ -374,7 +378,7 @@ for (var i = 0; !publicRoom.IsCompleted && i < 30; i++)
 }
 Check(publicRoom.IsCompleted, "Public queue completes through ordinary server-side pick validation");
 Check((await backend.State(queueTwo, ct)).State!.MatchReadyUtc == publicRoom.CompletedUtc!.Value.AddSeconds(15),
-    "Every public player sees the same server deadline for PLAY DRAFT");
+    "Every public player sees the same server deadline for START MATCH");
 await RejectAsync(() => backend.Command(queueTwo, new("finalize"), ct), "Public launch cooldown is enforced before freezing the result");
 publicRoom.CompletedUtc = DateTime.UtcNow.AddSeconds(-16);
 await backend.Command(queueTwo, new("finalize"), ct);

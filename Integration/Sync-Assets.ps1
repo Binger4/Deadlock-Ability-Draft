@@ -14,7 +14,7 @@ foreach ($group in @('Heroes', 'HeroesMini', 'Abilities')) {
     }
 }
 $json = ConvertTo-Json -InputObject $manifest -Compress
-Set-Content -LiteralPath (Join-Path $addonRoot 'scripts/ability_draft_assets.js') -Value "var AbilityDraftAssets = $json;" -Encoding utf8
+[IO.File]::WriteAllText((Join-Path $addonRoot 'scripts/ability_draft_assets.js'), "var AbilityDraftAssets = $json;", [Text.UTF8Encoding]::new($false))
 $images = $manifest.Values | ForEach-Object { '<Image src="file://{images}/' + [System.Security.SecurityElement]::Escape($_) + '" />' }
-Set-Content -LiteralPath (Join-Path $addonRoot 'layout/ability_draft_images.xml') -Value ('<root><Panel visible="false">' + ($images -join '') + '</Panel></root>') -Encoding utf8NoBOM
+[IO.File]::WriteAllText((Join-Path $addonRoot 'layout/ability_draft_images.xml'), ('<root><Panel visible="false">' + ($images -join '') + '</Panel></root>'), [Text.UTF8Encoding]::new($false))
 Write-Output "Synced $($manifest.Count) static icons from $IconsPath. No draft data is included."

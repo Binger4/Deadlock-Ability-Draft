@@ -1,0 +1,6 @@
+/* Keep the small scoreboard icons aligned, including active and toggled skills. */
+CitadelHudTopBarPlayer #PlayerAbilitiesContainer #button_container
+{
+    transform: translateY(0px);
+    animation-name: none;
+}

@@ -44,8 +44,9 @@ if ($SeparateMatches) {
     }
     $status | Select-Object role,port,running,ready | Format-Table
 }
-Write-Output "Website: $($config.BackendUrl)"
+Write-Output ('Website: ' + $(if ($config.WebsiteUrl) { $config.WebsiteUrl } else { 'https://localhost:7050/' }))
+Write-Output "Local plugin API: $($config.BackendUrl)"
 Write-Output 'In Deadlock, open Play and choose Ability Draft Public Queue or Custom Lobby.'
 Write-Output "Console fallback (F7): connect 127.0.0.1:$($config.ServerPort)"
-Write-Output 'PLAY DRAFT starts a separate match server when SeparateMatches is enabled.'
+Write-Output 'START MATCH starts a separate match server when SeparateMatches is enabled.'
 Write-Output 'Initial map loading can take about a minute. Logs: Integration/local/drafting/custom and public.'
