@@ -2,6 +2,7 @@
   "heroes": {
     "hero_astro": "Holliday",
     "hero_atlas": "Abrams",
+    "hero_baba": "Baba",
     "hero_bebop": "Bebop",
     "hero_bookworm": "Paige",
     "hero_chrono": "Paradox",
@@ -42,6 +43,10 @@
   },
   "abilities": {
     "ability_afterburn": "Afterburn",
+    "ability_baba_bench_run": "Granny Long Legs",
+    "ability_baba_bubbling_brew": "Threadsap",
+    "ability_baba_hexing_brew": "Baba\u0027s Brew",
+    "ability_baba_ultimate_2": "Feed The Birds",
     "ability_blood_bomb": "Essence Bomb",
     "ability_blood_shards": "Malice",
     "ability_bookworm_aoemagic": "Captivating Read",
