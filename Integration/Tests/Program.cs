@@ -26,6 +26,7 @@ Expect(() => WebsiteNavigation.Origin("http://draft.example.org/"), "Remote webs
 Expect(() => WebsiteNavigation.Origin("https://user:password@draft.example.org/"), "Website origin cannot contain credentials");
 Expect(() => WebsiteNavigation.Participant(WebsiteNavigation.Origin("https://draft.example.org/"), "//other.example.org/room"), "Website navigation cannot redirect to another host");
 MatchWorkerChecks.Run(temporary);
+await GameNodeChecks.Run(temporary);
 InactivityChecks.Run();
 DraftServerChecks.Run(temporary);
 PresetChecks.Run();
@@ -73,11 +74,23 @@ app.UseRateLimiter(); app.MapInGameIntegration();
 app.Urls.Add("http://127.0.0.1:0");
 var snapshot = app.Services.GetRequiredService<ServerDeadlockDataService>().Reload();
 Check(snapshot.IsLoaded, "Local Deadlock data loads");
+DataExportChecks.Run(snapshot.Data!, testPacking ? app.Services.GetRequiredService<DeadPackerService>() : null);
+await GameDataUpdateChecks.Run(root, temporary, app.Services.GetRequiredService<DeadlockFileParser>());
 await app.StartAsync();
 using var http = new HttpClient();
 var backend = new DraftBackendClient(http, new Uri(app.Urls.Single()), new string('x', 48));
 var rooms = app.Services.GetRequiredService<DraftRoomService>();
 var adapter = app.Services.GetRequiredService<InGameRoomAdapter>();
+foreach (var mode in new[] { DraftMode.FreePick, DraftMode.Classic, DraftMode.RandomHero, DraftMode.Custom })
+{
+    var normal = rooms.CreateRoom("Manual " + mode, "Manual host", DeadlockTeam.HiddenKing,
+        new DraftRoomConfig { DraftMode = mode, PreparationSeconds = 1 });
+    var normalRoom = rooms.GetRoom(normal.RoomCode)!;
+    rooms.StartDraft(normal.RoomCode, normal.PlayerId);
+    Check(normalRoom.Config.DraftMode == mode && normalRoom.Status == DraftRoomStatus.Drafting && normalRoom.GameNodeId == "main",
+        mode + " manual website creation/start remains independent of Game Node availability");
+    rooms.CloseInGameRoom(normal.RoomCode, "Test complete.");
+}
 LifecycleChecks.Run(adapter, rooms);
 NativeChatChecks.Run(adapter, rooms);
 using (var activityHttp = new HttpClient { BaseAddress = new Uri(app.Urls.Single()) })
@@ -296,6 +309,18 @@ var uncovered = new FakeRuntime { MissingAbility = target.Slots[0].AbilityKey };
 Expect(() => new RuntimeDraftApplier(uncovered, new FakeGate(), _ => { }).Apply(single), "Unprecached donor ability is rejected before preparing heroes");
 Check(uncovered.Begins == 0, "Missing resource coverage leaves the native player unchanged");
 var preparation = new MatchPreparation();
+AbilityUpgradeUndoChecks.Run();
+Check(ServerSimulationClock.Time(0, 640, float.Epsilon) == 10 &&
+    ServerSimulationClock.Time(float.NaN, 1280, float.NaN) == 20,
+    "Invalid SDK time and interval use the advancing 64-tick server clock");
+Check(ServerSimulationClock.Time(10.01f, 640, 1f / 64) == 10.01f &&
+    ServerSimulationClock.Time(0, 0, 1f / 64) == 0,
+    "A consistent SDK clock preserves native time including the map's first tick");
+var advancingPreparation = new MatchPreparation();
+advancingPreparation.Begin(ServerSimulationClock.Time(0, 640, float.Epsilon));
+Check(!advancingPreparation.CanStart(ServerSimulationClock.Time(0, 2559, float.Epsilon), true) &&
+    advancingPreparation.CanStart(ServerSimulationClock.Time(0, 2560, float.Epsilon), true),
+    "Preparation reaches gameplay after 30 seconds even when SDK curtime stays zero");
 Check(AbilityProgress.FromBits(0) == new AbilityProgress(false, 0, 0) && AbilityProgress.FromBits(1) == new AbilityProgress(true, 0, 1),
     "Ability levels distinguish locked from learned without a free upgrade");
 Check(new[] { 3, 7, 15, 31 }.Select(b => AbilityProgress.FromBits(b).UpgradeTier).SequenceEqual(new[] { 1, 2, 3, 4 }) &&
@@ -389,7 +414,7 @@ inGameOptions.Enabled = false;
 using (var disabled = await http.GetAsync(app.Urls.Single() + "/api/ingame/v1/state"))
     Check(disabled.StatusCode == HttpStatusCode.NotFound, "Disabled integration exposes no endpoint behavior");
 await app.StopAsync();
-Console.WriteLine("All integration checks passed (real HTTP/domain plus fake game boundary; no Deadlock runtime claim).");
+Console.WriteLine("All integration checks passed.");
 
 static void Check(bool condition, string name) { if (!condition) throw new Exception("FAIL: " + name); Console.WriteLine("PASS: " + name); }
 static void Expect(Action action, string name) { try { action(); } catch (InvalidOperationException) { Check(true, name); return; } throw new Exception("FAIL: " + name); }

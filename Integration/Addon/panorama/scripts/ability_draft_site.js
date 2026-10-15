@@ -136,9 +136,11 @@
             AbilityDraftMatch.reset();
             browser.SetPanelEvent('onactivate', focusWebsite);
             p.onClick('CloseSite', function () {
-                // A draft hub has no playable pawn behind the website. Hiding the UI
-                // there leaves a black screen; leave the hub, retaining reconnect rules.
-                if (panel.get('draftHub', '0') === '1') send('leaveServer');
+                // Native disconnect also works when the backend or UI bridge is unavailable.
+                if (panel.get('draftHub', '0') === '1') {
+                    exiting = true; websiteInput(false); AbilityDraftMatch.hideTooltip();
+                    $.DispatchEvent('CitadelConCommand', 'disconnect');
+                }
                 else { closed = true; websiteInput(false); render(); }
             });
             p.onClick('OpenSite', function () { closed = false; render(); });

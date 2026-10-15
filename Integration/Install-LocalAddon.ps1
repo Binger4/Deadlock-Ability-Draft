@@ -1,6 +1,7 @@
-param([string]$DeadworksReleaseDirectory = (Join-Path $PSScriptRoot '../Tools/DeadworksRelease/v0.5.3'))
+param([string]$DeadworksReleaseDirectory = (Join-Path $PSScriptRoot '../Tools/DeadworksRelease/v0.5.6'))
 # Close the game and servers before installing.
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'AbilityDraftPackage.ps1')
 $config = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'local/settings.json') -Raw | ConvertFrom-Json
 $gameRoot = (Resolve-Path -LiteralPath $config.GameRoot).Path
 if (!(Test-Path -LiteralPath (Join-Path $gameRoot 'game/bin/win64/deadlock.exe'))) { throw 'This is not a Deadlock installation.' }
@@ -25,7 +26,7 @@ foreach ($savedDirectory in Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot 
 # managers can rewrite SearchPaths and remove our private development profile.
 $addons = Join-Path $gameRoot 'game/citadel/addons'
 $clientNames = @(Get-ChildItem -LiteralPath $addons -Filter 'pak*_dir.vpk' -File -ErrorAction SilentlyContinue |
-    Where-Object { (Get-FileHash -LiteralPath $_.FullName).Hash -in $knownHashes } |
+    Where-Object { (Get-FileHash -LiteralPath $_.FullName).Hash -in $knownHashes -or (Test-AbilityDraftPackage $_.FullName) } |
     Select-Object -ExpandProperty Name)
 if ($clientNames.Count -eq 0) {
     $freeName = 1..99 | ForEach-Object { 'pak{0:00}_dir.vpk' -f $_ } |

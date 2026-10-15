@@ -33,8 +33,10 @@ public sealed class DraftBackendClient(HttpClient http, Uri baseUri, string serv
     public Task<QueueReply> Queue(string steam, RoomCommand? command, CancellationToken ct) => Send<QueueReply>(steam, "queue", command, ct);
     public async Task Disconnect(string steam, CancellationToken ct)
     {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(8));
         using var request = Request(steam, "disconnect", HttpMethod.Post);
-        using var response = await http.SendAsync(request, ct);
+        using var response = await http.SendAsync(request, timeout.Token);
     }
     private HttpRequestMessage Request(string steam, string route, HttpMethod method)
     {

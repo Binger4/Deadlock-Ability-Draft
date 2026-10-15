@@ -12,6 +12,7 @@
     <Content Remove="Integration\**" />
     <None Remove="Integration\**" />
     <ProjectReference Include="Integration\Contracts\AbilityDraft.Contracts.csproj" />
+    <ProjectReference Include="Integration\MatchHosting\AbilityDraft.MatchHosting.csproj" />
     <Compile Remove="Tools\**" />
     <Content Remove="Tools\**" />
     <EmbeddedResource Remove="Tools\**" />

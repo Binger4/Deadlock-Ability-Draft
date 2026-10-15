@@ -1,41 +1,44 @@
 # Run Ability Draft locally
 
-The current local setup uses Deadlock 6745 and Deadworks 0.5.3. Local tests use `https://localhost:7050/` for the embedded in-game page and `http://127.0.0.1:5050/` for the server API. Both addresses serve the same backend. The HTTPS page was confirmed working in-game after trusting the existing development certificate and restarting Steam.
+This guide runs the website, Custom Lobby, Public Queue and match workers on your Windows PC. It uses `https://localhost:7050/` for the embedded in-game page and `http://127.0.0.1:5050/` for the server API. Both addresses serve the same backend. For friends on other networks, use [public hosting](HOSTING.md).
 
-**Known issue — October 4:** the real player can fall into base after the match-start zipline intro instead of travelling to the lane. This is reproduced and unresolved. Both hubs and real-player match transfer work; chat persistence, AFK and empty-match rules pass automated checks. The native test kicked the idle player after five minutes and closed the empty worker two minutes later; reconnecting during the grace period still needs a live test. See [hosting verification](HOSTING.md#check-deployment) before installing publicly.
+## First installation
 
-Before the first local test, run `dotnet dev-certs https --trust` and approve the Windows certificate prompt. Fully exit Steam and reopen it afterward so its embedded browser loads the updated trust store. This is only for the development PC; players use the public website certificate and do not install a certificate. Startup checks for an existing trusted certificate and never installs one automatically.
+1. Complete the [prerequisites](INSTALLATION.md#prerequisites-for-building-and-hosting), [website installation](INSTALLATION.md#website-installation) and [build tools](INSTALLATION.md#build-tools). This includes the Visual C++ x64 runtime, PowerShell 7, .NET 10 SDK, CSDK, Source 2 Viewer CLI, Deadworks 0.5.6 release/source and bootstrap VPK/manifest. Finish the initial catalogue download in admin, then stop the website with Ctrl+C.
+2. Locate your Deadlock installation through Steam's **Properties → Installed Files → Browse**. Close Deadlock before installing files. In PowerShell 7 at the repository root, initialize the local configuration with that path:
 
-`Integration/local/settings.json` can set `WebsiteUrl` separately from `BackendUrl`. Local startup and addon builds read the same setting; rebuild/reinstall the VPK when changing it. For a public server, use [Cloudflare Tunnel setup](HOSTING.md#https-through-cloudflare-tunnel-free).
+   ```powershell
+   ./Integration/Initialize-Local.ps1 -GameRoot 'C:/Program Files (x86)/Steam/steamapps/common/Deadlock'
+   dotnet dev-certs https --trust
+   ```
 
-After initialization/build, double-click **Start Ability Draft Server.cmd** in the repository root. It works with Windows PowerShell 5.1 and keeps startup errors visible. This is an administrator shortcut, not a player launcher.
+3. Approve the Windows certificate prompt. Fully exit Steam and reopen it so its embedded browser loads the updated trust store. This certificate is only for your localhost setup; public players use the server's public HTTPS certificate. Initialization creates a private server key and `Integration/local/settings.json`; it retains existing settings and does not download dependencies.
+4. Build and install from the repository root. Stop if any command reports an error:
 
-To install the current changes on the already prepared development PC, close Deadlock and run the following in PowerShell 7 from the repository root. Stop if any command fails:
+   ```powershell
+   dotnet build ./abilitydraft.csproj
+   dotnet build ./Integration/Deadworks/AbilityDraft.Deadworks.csproj
+   ./Integration/Build-BaseAddon.ps1
+   ./Integration/Install-LocalAddon.ps1
+   ./Integration/Test-LocalClient.ps1
+   ./Integration/Start-Local.ps1
+   ```
 
-```powershell
-.\Integration\Stop-Local.ps1
-dotnet build .\abilitydraft.csproj
-dotnet build .\Integration\Deadworks\AbilityDraft.Deadworks.csproj
-.\Integration\Build-BaseAddon.ps1
-.\Integration\Install-LocalAddon.ps1
-.\Integration\Start-Local.ps1
-```
+5. Add `-insecure` to Deadlock's Steam launch options while using the mod. Start Deadlock and select **Play → Ability Draft → Custom Lobby** or **Public Queue**. The complete VPK includes the Deadworks UI bridge.
 
-The website build is required because local startup uses `--no-build`. The installer deploys the Debug plugin output and the complete player VPK, backing up replaced files. Fully restart Deadlock after changing the VPK. A fresh checkout also needs the downloads and pinned bootstrap described in [HOSTING](HOSTING.md), plus `Initialize-Local.ps1` once; initialization does not download those tools.
+The installer copies the Debug plugin build and full Deadworks release from `Tools`, installs the player VPK, restores the addon search path and backs up replaced files. It needs write permission to your selected game directory; use an elevated PowerShell window for installation if Windows denies access. Do not run the game or servers during installation. `Test-LocalClient.ps1` is the installation check: it confirms the current complete VPK is on an enabled search path.
 
-The shortcut starts the website with local integration settings; the website then starts the game servers directly. The website never runs the CMD file. For a VPS, start the published website with the production configuration instead; see [compile and update on the VPS](HOSTING.md#compile-and-update-on-the-vps). Running plain `dotnet run` only starts game servers if the integration flags and paths are configured in that environment.
+`Integration/local/settings.json` can set `WebsiteUrl` separately from `BackendUrl`. The addon build and local startup read the same settings; rebuild/reinstall the VPK if the addresses change. The website build is required because local startup uses `--no-build`.
 
-Or open PowerShell in the repository and run:
+## Start after installation
 
-```powershell
-& "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File .\Integration\Start-Local.ps1
-```
+Double-click **Start Ability Draft Server.cmd** in the repository root, or run `./Integration/Start-Local.ps1` in PowerShell. The shortcut keeps startup errors visible. It starts the website with local integration settings; the website starts and supervises the game servers directly. For a VPS, use the published website and [production configuration](HOSTING.md#backend-configuration) instead.
 
-Startup first verifies that the complete player VPK is mounted, then starts the local website on `http://127.0.0.1:5050/`. The website supervises a custom-lobby server on port **27067** and a separate public-queue server on **27068**. If either closes, it launches a replacement automatically. The shortcut waits for both maps to report ready before announcing success; initial map loading can take about a minute. Match workers start on demand on **27069–27070**, allowing two independent matches with the local configuration.
+`dotnet run` uses the same local HTTP and HTTPS addresses from `Properties/launchSettings.json`, but reads integration settings from `appsettings.json`. To host the game this way, enable `InGame.Enabled`, `InGame.PublicQueueEnabled`, `InGame.DraftServers.Enabled` and `InGame.MatchWorkers.Enabled`, and configure the game paths, URLs and server key to match your local setup. The CMD shortcut supplies those settings from `Integration/local/settings.json` automatically. Use one startup method at a time.
 
-Open Deadlock with the installed complete VPK and the local `-insecure` launch setting. Select Play → Ability Draft → Custom Lobby or Public Queue. The base VPK includes the Deadworks UI bridge.
+Startup first verifies that the complete player VPK is mounted, then starts the local website on `http://127.0.0.1:5050/` and `https://localhost:7050/`. These are two listeners for the same application: server plugins use the HTTP backend URL, and the embedded browser uses the HTTPS website URL. Port 7050 is a local configuration choice; changing the website origin also requires rebuilding and reinstalling the player VPK. The website supervises a custom-lobby server on port **27067** and a separate public-queue server on **27068**. If either closes, it launches a replacement automatically. The shortcut waits for both maps to report ready before announcing success; initial map loading can take about a minute. Match workers start on demand on **27069–27070**, allowing two independent matches with the local configuration.
 
-To rebuild the local mod, double-click `Build Ability Draft Mod.cmd` in the repository root. The build uses the game path from `Integration/local/settings.json` and leaves the console open. The generated VPK is `Integration/dist/ability_draft_base.vpk`; building does not install it automatically. See [Build the player VPK](HOSTING.md#build-the-player-vpk) for public server addresses.
+To update, stop the local services and close Deadlock, repeat the build/install commands above, then restart. `Build-BaseAddon.ps1` reads the game path from `Integration/local/settings.json` and produces `Integration/dist/ability_draft_base.vpk`; building does not install it automatically. See [game-update recovery](HOSTING.md#updating-after-a-game-patch) and [known gameplay limitations](HOSTING.md#known-limitations).
 
 ## Custom room
 
@@ -49,13 +52,15 @@ Public Queue automatically joins the backend queue on its own server, without cu
 
 ## Automatic server flow
 
-The website freezes the final draft result. The backend reserves a free port and starts a fresh Deadworks worker alongside the website. The worker receives the result and precaches the supported hero resources. Once ready, it reports its address privately to that draft's players. Their VPK connects them automatically. The worker admits the Steam roster, waits for everyone and assigns teams/heroes/abilities before the native intro stage. It then gives everyone 30 seconds of native preparation in their own base, with lane swapping available. The map's own spawn barriers are enabled for preparation; a friendly-base containment check remains as a fallback. At gameplay start the base hold ends and the native Patron awakening cinematic plays. Trooper spawning remains disabled until match clock 0:20; the first active wave was observed at 0:21 in the September 19 test. The drafting servers remain available for other rooms.
+The website freezes the final draft result. The backend reserves a free port and starts a fresh Deadworks worker alongside the website. The worker receives the result and precaches the supported hero resources. Once ready, it reports its address privately to that draft's players. Their VPK connects them automatically. The worker admits the Steam roster, waits for everyone and assigns teams/heroes/abilities before the native intro stage. It then gives everyone 30 seconds of native preparation in their own base, with lane swapping available. The map's own spawn barriers are enabled for preparation; a friendly-base containment check remains as a fallback. At gameplay start the base hold ends and the native Patron awakening cinematic plays. Trooper spawning remains disabled until match clock 0:20. The drafting servers remain available for other rooms.
 
-After a Deadlock update, check the compatible Deadworks release, rebuild the website/plugin and rebuild the player VPK with the matching client bridge. See [Updating after a game patch](HOSTING.md#updating-after-a-game-patch). The October 4 check used Deadlock 6745, Deadworks 0.5.3 and bootstrap 7: both hubs reported ready, and a real player joined a separate match worker. The lane departure failure above remains open.
+After a Deadlock update, use the compatible Deadworks release, rebuild the website/plugin and rebuild the player VPK with the matching client bridge. See [Updating after a game patch](HOSTING.md#updating-after-a-game-patch), including recovery when `Game citadel/addons` disappears from `gameinfo.gi`.
 
 During preparation, all four skills are locked and players have no unlock or upgrade points. At gameplay start, players receive one ability unlock, zero upgrade points and server hero level 1. Learn the first ability with the normal Tab menu. **ABILITY DRAFT** shows the drafted heroes, final slots and three upgrade bars beneath each ability icon. Purple bars represent purchased upgrades; black bars represent upgrades not yet purchased. An unlocked skill also has a purple bottom border. Descriptions use the native ability tooltip and the live player slot. The panel reads native progression once per second and closes automatically for intro/preparation/start.
 
-### Testing with bots
+Hold **Tab** and right-click a skill icon or a purchased upgrade bar to undo its latest upgrade. Each upgrade can be refunded for 20 seconds, provided the skill has not been used since that upgrade. The server restores the points spent on that upgrade. Recent unused unlocks can also be refunded.
+
+### Play with bots
 
 Enable **Allow bots for empty slots** on the original Create Room form. The website drafts the empty seats as usual. After **START MATCH**, the worker uses Deadlock's built-in practice-bot fill, waits for each native bot controller and initial hero, then applies that seat's drafted team, hero and four ability slots. Humans are matched by Steam ID; each bot is matched by its website participant ID and native entity handle. Bots do not count as humans for arrival, disconnect or match cleanup.
 
@@ -67,7 +72,7 @@ Each group has its own match process, result and port. Other groups can draft/pl
 
 **LEAVE SERVER** returns from a custom lobby to the game menu and uses the normal disconnect/reconnect grace. It does not permanently abandon a room that still has other players. In a playing match, **CLOSE** still closes only the loadout panel. Hiding the entire UI on a draft-only server previously exposed a black background; that lobby action is now an actual exit.
 
-Startup, missing-player and heartbeat timeouts stop failed workers. A match allows three minutes for its first player to arrive; once all players arrive, preparation has a separate 90-second failure watchdog so a late arrival still gets the full 30-second preparation. These match safeguards do not impose a public-queue deadline. Native solo allocation/transfer/gameplay have been verified. Full multiplayer, normal match-end cleanup and preservation of mid-match reconnect state still need native testing. Random internal worker IDs are process identifiers; users join with the website room code.
+Startup, missing-player and heartbeat timeouts stop failed workers. A match allows three minutes for its first player to arrive; once all players arrive, preparation has a separate 90-second failure watchdog so a late arrival still gets the full 30-second preparation. These match safeguards do not impose a public-queue deadline. Users join with the website room code; internal worker IDs identify server processes.
 
 In Custom Lobby, five minutes without interacting with the draft website or native chat kicks the player without abandoning their room. Public Queue waiting is exempt. During gameplay, five minutes without movement, aim, buttons, ability/item actions or chat kicks the player without revoking their seat; paused game time does not count. Idle packets, automatic movement and open UI state do not count as activity. Bots and spectators do not keep an empty match alive. Rejoining before the two-minute empty deadline cancels cleanup; after that deadline the match is permanently closed and cannot be relaunched from the old result. Logs remain available for diagnostics.
 
@@ -81,25 +86,21 @@ No new VPK is downloaded between drafting and playing. Generate Files is hidden 
 .\Integration\Stop-Local.ps1
 ```
 
-This stops the recorded local backend/server and backend-owned workers. Restarting the in-memory backend clears draft rooms. To test the older same-map prototype explicitly:
-
-```powershell
-.\Integration\Start-Local.ps1 -SeparateMatches:$false
-```
+This stops the recorded local backend/server and backend-owned workers. Restarting the in-memory backend clears draft rooms.
 
 Close Deadlock and all servers before running Install-LocalAddon.ps1 again. It creates a backup; Restore-LocalInstall.ps1 restores a selected installation backup. The installer now retains explicit native Mod/Write roots, preventing the missing user_keys_default startup error when the addon is mounted first.
 
 ## If the menu works but connecting shows black
 
-The old menu-only VPK did not contain the Deadworks UI bridge. A mod manager could remove the separate bridge SearchPath while leaving the menu buttons installed. This exact failure was found on September 19. Build-BaseAddon.ps1 now bundles the pinned bridge and writes player-package.json; Install-LocalAddon.ps1 puts the complete package in the normal citadel/addons path and updates recognized older Ability Draft copies without replacing unrelated VPKs. Start-Local.ps1 refuses a missing/stale/unmounted player package. Do not copy an older menu-only VPK back over the installed version.
+Use the complete player VPK, including the Deadworks UI bridge. `Build-BaseAddon.ps1` bundles that bridge and writes `player-package.json`; `Install-LocalAddon.ps1` installs the package in `citadel/addons` and updates recognized older Ability Draft copies without replacing unrelated VPKs. `Start-Local.ps1` refuses a missing, stale or unmounted package. Do not replace it with an older menu-only VPK.
 
 For a manual reinstall, close Deadlock, replace the existing Ability Draft pakNN_dir.vpk in game/citadel/addons with Integration/dist/ability_draft_base.vpk, retaining that installed filename. Replace/remove obsolete copies of this same mod; preserve unrelated mods. Ensure Game citadel/addons remains enabled in gameinfo.gi, then restart Deadlock. A game update or another HUD mod can still require rechecking the mounted resources. The server logs the client UI handshake and sends a native warning if no ready UI is acknowledged after 15 seconds. It does not admit a missing-UI client to the public queue.
 
 ## Remote players / Windows VPS
 
-The installed test VPK points to localhost. A friend's localhost is their own machine. Build a remote package with **-WebsiteUrl**, **-DraftServer** and **-PublicQueueServer**, and configure matching backend hosting settings. See [HOSTING.md](HOSTING.md) for the Windows VPS instructions. Public-origin configuration is implemented; Internet play has not yet been tested. Keep the backend key and worker result files private; they never belong in the VPK.
+The default local VPK points to localhost. A friend's localhost is their own machine. Build a public package with **-WebsiteUrl**, **-DraftServer** and **-PublicQueueServer**, and configure matching backend hosting settings. See [HOSTING.md](HOSTING.md) for the Windows VPS instructions. Keep the backend key and worker result files private; they never belong in the VPK.
 
-The backend uses `InGame:DraftServers` and `InGame:MatchWorkers` in appsettings.example.json. Start-LocalBackend.ps1 sets them locally. A plain unconfigured website does not enable hosting; once configured, ASP.NET starts/supervises both hubs and launches match workers automatically. No VPS deployment or firewall changes have been made. If an already-running website reports supervision disabled, stop/restart it with the shortcut to load the new configuration.
+The backend uses `InGame:DraftServers` and `InGame:MatchWorkers` in `appsettings.example.json`. `Start-LocalBackend.ps1` sets them locally. A plain unconfigured website does not enable hosting; once configured, ASP.NET starts/supervises both hubs and launches match workers automatically. If an already-running website reports supervision disabled, stop/restart it with the shortcut to load the new configuration.
 
 The site's closed/developer-access setting also blocks new in-game draft requests. Open the site in its admin page before testing. The server-key-protected hosting health endpoint remains available while the site is closed, so startup can report the actual process state.
 
@@ -123,3 +124,11 @@ Observers use Deadlock's spectator camera. They do not count toward player readi
 Open `/admin` and use the refresh button beside Draft statistics. Active drafts and active matches have separate lists. Expand a match to see teams, heroes, drafted abilities, bots, abandoned players and spectators. Source badges are white for web, blue for public queue and green for in-game custom lobbies. Public host fields show *none*.
 
 Completed history shows at most 100 drafts per page. Use First, Previous, Next and Last to navigate. Existing records without a source keep their data and appear as web drafts.
+
+## Optional remote match hosting
+
+For installation on another PC or VPS, including IP addresses, Cloudflare and opening ports, use the [deployment walkthrough](https://github.com/Binger4/Deadlock-Ability-Draft-Game-Node/blob/main/DEPLOYMENT.md).
+
+The existing local setup works without remote hosts. If you want matches to run on additional machines or in other regions, follow the [optional Game Nodes setup guide](GAME-NODES.md#optional-deployment), then the [standalone agent installation guide](https://github.com/Binger4/Deadlock-Ability-Draft-Game-Node#install-on-windows). Custom/Public drafting stays on MAIN; agents host only the actual matches after drafting.
+
+Players select a server only in the game client's Create Lobby form. They see names, regions, ping and availability; match counts and capacity are admin-only. Public Queue keeps its MAIN server. Ordinary website room creation and manual VPK downloads keep their existing workflow and do not depend on Game Node availability.

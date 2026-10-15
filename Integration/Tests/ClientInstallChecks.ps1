@@ -19,6 +19,13 @@ try {
     Check-Install $false 'A stale menu-only package is rejected'
     Copy-Item -LiteralPath (Join-Path $integration 'dist/ability_draft_base.vpk') -Destination $package -Force
     Check-Install $true 'The complete package works with the normal mod-manager SearchPaths'
+    $stale = Join-Path $addons 'pak52_dir.vpk'
+    $bytes = [IO.File]::ReadAllBytes($package)
+    $bytes[$bytes.Length - 1] = $bytes[$bytes.Length - 1] -bxor 1
+    [IO.File]::WriteAllBytes($stale, $bytes)
+    Check-Install $false 'An older Ability Draft copy cannot override the current package silently'
+    Copy-Item -LiteralPath $package -Destination $stale -Force
+    Check-Install $true 'Multiple matching current packages remain compatible'
     [IO.File]::WriteAllText($infoPath, "SearchPaths`n{`n // Game citadel/addons`n Game citadel`n}")
     Check-Install $false 'A package on a disabled search path is not accepted'
 }

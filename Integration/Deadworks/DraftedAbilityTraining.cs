@@ -1,4 +1,5 @@
 using System.Globalization;
+using AbilityDraft.Runtime;
 using DeadworksManaged.Api;
 
 namespace AbilityDraft.Deadworks;
@@ -26,7 +27,7 @@ public sealed partial class AbilityDraftPlugin
         if (args.Command is "upgrade_ability" or "upgrade_ability_in_field")
             return args.Controller is { } caller && runtimeResult?.IsPlayer(caller.PlayerSteamId.ToString()) == true
                 ? HookResult.Stop : HookResult.Continue;
-        if (args.Command != "trainorupgradeability") return HookResult.Continue;
+        if (args.Command is not ("trainorupgradeability" or "ad_undo_ability")) return HookResult.Continue;
         if (!matchReleased || args.Controller is not { } player ||
             runtimeResult?.IsPlayer(player.PlayerSteamId.ToString()) != true ||
             args.Args.Length != 2 || !int.TryParse(args.Args[1], NumberStyles.None, CultureInfo.InvariantCulture, out var slot) ||
@@ -34,8 +35,19 @@ public sealed partial class AbilityDraftPlugin
         var pawn = player.GetHeroPawn();
         var ability = pawn?.AbilityComponent.GetAbilityBySlot((EAbilitySlot)(slot - 1));
         if (pawn is null || ability is null || !ability.IsSignature || abilityTraining is null) return HookResult.Stop;
+        RecordMatchActivity(player);
+        if (args.Command == "ad_undo_ability")
+        {
+            UndoAbility(player, pawn, ability);
+            return HookResult.Stop;
+        }
         var before = ability.UpgradeBits;
+        var points = pawn.GetCurrency(ECurrencyType.EAbilityPoints);
+        var unlocks = pawn.GetCurrency(ECurrencyType.EAbilityUnlocks);
         abilityTraining.Apply(pawn, ability);
+        abilityUndo.Record(player.Slot, ability.EntityHandle, new(pawn.EntityHandle, before, ability.UpgradeBits,
+            points - pawn.GetCurrency(ECurrencyType.EAbilityPoints), unlocks - pawn.GetCurrency(ECurrencyType.EAbilityUnlocks),
+            NativeGameTime.MatchClock, CastCompletedAt.Get(ability.Handle)));
         Log($"Drafted ability training slot {player.Slot}, ability {slot}: {before} -> {ability.UpgradeBits}; AP={pawn.GetCurrency(ECurrencyType.EAbilityPoints)}; unlocks={pawn.GetCurrency(ECurrencyType.EAbilityUnlocks)}");
         return HookResult.Stop;
     }

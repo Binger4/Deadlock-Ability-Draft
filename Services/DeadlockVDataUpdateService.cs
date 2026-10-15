@@ -11,6 +11,7 @@ public sealed class DeadlockVDataUpdateService(
     IOptions<DeadlockDataOptions> options,
     IWebHostEnvironment environment,
     ServerDeadlockDataService dataService,
+    DeadlockFileParser parser,
     ILogger<DeadlockVDataUpdateService> logger) : BackgroundService
 {
     private const string AbilitiesUrl = "https://raw.githubusercontent.com/SteamTracking/GameTracking-Deadlock/master/game/citadel/pak01_dir/scripts/abilities.vdata";
@@ -115,11 +116,23 @@ public sealed class DeadlockVDataUpdateService(
                 return new DeadlockVDataCheckResult(false, false, state.LastMessage);
             }
 
-            var abilitiesBytes = await DownloadBytesAsync(AbilitiesUrl, cancellationToken);
-            var heroesBytes = await DownloadBytesAsync(HeroesUrl, cancellationToken);
+            // Pin both downloads to the commit we checked. A moving branch can
+            // otherwise mix hero bindings from one build with another's abilities.
+            var abilitiesBytes = await DownloadBytesAsync(AbilitiesUrl.Replace("/master/", $"/{latestCommit}/", StringComparison.Ordinal), cancellationToken);
+            var heroesBytes = await DownloadBytesAsync(HeroesUrl.Replace("/master/", $"/{latestCommit}/", StringComparison.Ordinal), cancellationToken);
+            var candidate = parser.Parse(new UploadedDeadlockFiles(Encoding.UTF8.GetString(heroesBytes),
+                Encoding.UTF8.GetString(abilitiesBytes), new Dictionary<string, string>(),
+                new Dictionary<string, string>(), new Dictionary<string, string>(), []));
+            if (candidate.Heroes.Count < 12 || candidate.Abilities.Count == 0 ||
+                DeadlockFileParser.GetString(candidate.HeroesDocument.Root, "generic_data_type") != "CitadelHeroData_t" ||
+                DeadlockFileParser.GetString(candidate.AbilitiesDocument.Root, "generic_data_type") != "CitadelAbilityVData" ||
+                // Valve also ships unfinished/prototype heroes with unresolved
+                // bindings. Require enough complete loadouts for 6v6 instead.
+                candidate.Heroes.Count(h => new[] { h.WeaponAbility, h.Ability1, h.Ability2, h.Ability3, h.Ultimate }
+                    .All(candidate.AbilitiesDocument.Root.ContainsKey)) < 12)
+                throw new InvalidDataException("Downloaded game data is incomplete or has unresolved hero abilities; existing files were kept.");
 
-            ReplaceFileSafely(abilitiesPath, abilitiesBytes);
-            ReplaceFileSafely(heroesPath, heroesBytes);
+            ReplaceFilesSafely([(abilitiesPath, abilitiesBytes), (heroesPath, heroesBytes)]);
 
             var updatedUtc = DateTime.UtcNow;
             state.CommitHash = latestCommit;
@@ -199,7 +212,7 @@ public sealed class DeadlockVDataUpdateService(
         }
 
         var sha = shaElement.GetString();
-        if (string.IsNullOrWhiteSpace(sha))
+        if (sha is not { Length: 40 } || !sha.All(char.IsAsciiHexDigit))
         {
             throw new InvalidOperationException("GitHub commit sha was empty.");
         }
@@ -269,29 +282,32 @@ public sealed class DeadlockVDataUpdateService(
     private string StatePath() =>
         Path.Combine(Resolve(options.Value.GameDataPath), "state.json");
 
-    private static void ReplaceFileSafely(string path, byte[] bytes)
+    private static void ReplaceFilesSafely((string Path, byte[] Bytes)[] files)
     {
-        var tempPath = $"{path}.{Guid.NewGuid():N}.tmp";
-        File.WriteAllBytes(tempPath, bytes);
-
+        var staged = files.Select(f => (f.Path, f.Bytes, Temporary: $"{f.Path}.{Guid.NewGuid():N}.tmp",
+            Previous: File.Exists(f.Path) ? File.ReadAllBytes(f.Path) : null)).ToArray();
+        var installed = 0;
         try
         {
-            if (File.Exists(path))
-            {
-                File.Delete(path);
-            }
-
-            File.Move(tempPath, path);
+            foreach (var file in staged) File.WriteAllBytes(file.Temporary, file.Bytes);
+            foreach (var file in staged)
+            { File.Move(file.Temporary, file.Path, overwrite: true); installed++; }
         }
         catch
         {
-            if (File.Exists(tempPath))
+            // A failure installing the second file must not leave a mixed pair.
+            foreach (var file in staged.Take(installed))
             {
-                File.Delete(tempPath);
+                if (file.Previous is null) File.Delete(file.Path);
+                else
+                {
+                    File.WriteAllBytes(file.Temporary, file.Previous);
+                    File.Move(file.Temporary, file.Path, overwrite: true);
+                }
             }
-
             throw;
         }
+        finally { foreach (var file in staged) if (File.Exists(file.Temporary)) File.Delete(file.Temporary); }
     }
 
     private TimeSpan UpdateInterval() =>

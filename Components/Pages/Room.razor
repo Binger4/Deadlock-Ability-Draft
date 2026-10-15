@@ -12,6 +12,7 @@
 @inject IOptions<DraftTimingOptions> TimingOptions
 @inject IOptions<abilitydraft.Services.InGame.InGameOptions> InGameOptions
 @inject abilitydraft.Services.InGame.InGameRoomAdapter InGameAdapter
+@inject abilitydraft.Services.InGame.GameNodeCoordinator GameNodes
 
 <PageTitle>Deadlock Ability Draft Room</PageTitle>
 
@@ -65,6 +66,10 @@ else
                 }
                 <p class="eyebrow">@CurrentRoom.Status</p>
                 <h1>@CurrentRoom.Name</h1>
+                @if (GameDisplay && GameNodes.Enabled)
+                {
+                    <p>Game server: <strong>@GameNodes.DisplayName(CurrentRoom.GameNodeId)</strong></p>
+                }
                 @if (CurrentRoom.Config.DraftMode == DraftMode.Custom)
                 {
                     <p>Custom base: <strong>@ModeLabel(CurrentRoom.Config.CustomBaseDraftMode)</strong></p>
@@ -910,7 +915,7 @@ else
         </div>
         <div class="custom-toggle-grid">
             <label class="toggle"><input type="checkbox" @bind="LobbyAllowDuplicates" /><span>Allow duplicate abilities</span></label>
-            <label class="toggle"><input type="checkbox" @bind="LobbyFlexibleUltimates" /><span>Flexible ultimate slots</span></label>
+            <label class="toggle"><input type="checkbox" @bind="LobbyFlexibleUltimates" disabled="@(CurrentRoom?.InGameManaged == true)" /><span>Flexible ultimate slots@(CurrentRoom?.InGameManaged == true ? " (website export only)" : "")</span></label>
             <label class="toggle"><input type="checkbox" @bind="LobbyBlindDraft" /><span>Blind draft</span></label>
             <label class="toggle"><input type="checkbox" @bind="LobbyFullRandom" /><span>Full Random</span></label>
             <label class="toggle"><input type="checkbox" @bind="LobbyAllowOverride" /><span>Host override picks/reorder</span></label>

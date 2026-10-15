@@ -28,6 +28,16 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
     });
 builder.Services.AddAuthorization();
 builder.Services.AddSignalR();
+builder.Services.Configure<Microsoft.AspNetCore.Builder.ForwardedHeadersOptions>(options =>
+{
+    // Trust only explicitly configured TLS terminators; never accept arbitrary forwarded schemes.
+    var proxies = builder.Configuration.GetSection("GameNodes:TrustedProxyAddresses").Get<string[]>() ?? ["127.0.0.1", "::1"];
+    options.ForwardedHeaders = proxies.Length == 0 ? Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.None : Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto;
+    options.KnownIPNetworks.Clear(); options.KnownProxies.Clear();
+    foreach (var address in proxies)
+        options.KnownProxies.Add(System.Net.IPAddress.Parse(address));
+    options.ForwardLimit = 1;
+});
 builder.Services.AddInGameIntegration(builder.Configuration);
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<abilitydraft.Services.SiteAccessService>();
@@ -55,6 +65,7 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<abilitydraft.Servi
 builder.Services.AddHostedService<abilitydraft.Services.DraftCacheCleanupService>();
 
 var app = builder.Build();
+app.UseForwardedHeaders();
 app.Services.GetRequiredService<abilitydraft.Services.ServerDeadlockDataService>().Reload();
 
 if (!app.Environment.IsDevelopment())
@@ -63,6 +74,7 @@ if (!app.Environment.IsDevelopment())
 }
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
 app.UseAuthentication();
+app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(15) });
 app.UseAuthorization();
 app.UseAntiforgery();
 app.UseRateLimiter();
@@ -86,6 +98,7 @@ app.Use(async (httpContext, next) =>
 });
 
 app.MapInGameIntegration();
+app.MapGameNodes();
 
 app.MapGet("/download/ability-draft-mod", (IWebHostEnvironment environment, IOptions<InGameOptions> inGame, abilitydraft.Services.ProjectLinksService projectLinks) =>
 {
@@ -226,6 +239,7 @@ static bool IsSiteAccessAllowedPath(PathString path)
     // The private server-key endpoint must still report process health while the
     // public site is closed. Its integration authentication remains mandatory.
     if (path.Equals("/api/ingame/v1/hosting")) return true;
+    if (path.Equals("/api/game-nodes/v1/connect") || path.Equals("/game-nodes/ping")) return true;
     if (path.StartsWithSegments("/site-closed") ||
         path.StartsWithSegments("/site-access") ||
         path.Equals("/admin/login") ||

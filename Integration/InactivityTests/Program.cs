@@ -23,4 +23,4 @@ Check(NativePlayerInput.HasActivity(command,ref previous), "A short subtick key 
 command.Base.SubtickMoves.Clear(); command.ExecuteAbilityIndices = 4;
 Check(NativePlayerInput.HasActivity(command,ref previous), "Ability execution counts as activity");
 Check(NativePlayerInput.HasActivity(new CCitadelUserCmdPB { ExecuteAbilityIndices = 4 },ref previous), "Ability-only packets do not need movement fields to count");
-Console.WriteLine("Native AFK input checks passed using Deadworks 0.5.3 command messages.");
+Console.WriteLine("Native AFK input checks passed using the pinned Deadworks command messages.");

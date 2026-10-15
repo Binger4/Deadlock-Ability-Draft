@@ -14,8 +14,19 @@ public sealed partial class AbilityDraftPlugin
     private string workerState = "Starting";
     private int workerLastCount = -1;
     private DateTime nextWorkerReport, workerStarted = DateTime.UtcNow;
+    private DateTime nextPreparationAudit;
     private HashSet<string> workerAbandoned = new();
     private readonly MatchPreparation preparation = new();
+    private void RecordLocalAbandon(string steam)
+    {
+        if (!workerResult!.IsPlayer(steam) && !IsMatchSpectator(steam)) return;
+        var path = Path.Combine(workerDirectory!, "local-abandoned.json");
+        var abandoned = File.Exists(path) ? JsonSerializer.Deserialize<HashSet<string>>(File.ReadAllText(path), Json) ?? [] : new HashSet<string>();
+        abandoned.Add(steam);
+        File.WriteAllText(path + ".tmp", JsonSerializer.Serialize(abandoned, Json));
+        File.Move(path + ".tmp", path, true);
+        workerAbandoned.Add(steam);
+    }
 
     private void LoadMatchWorker()
     {
@@ -104,6 +115,11 @@ public sealed partial class AbilityDraftPlugin
         PrepareSpectators();
         var count = Players.GetAll().Count(p => result.IsPlayer(p.PlayerSteamId.ToString()));
         var required = result.Players.Count(p => !p.IsBot);
+        if (!matchReleased && workerPreparing && Environment.GetEnvironmentVariable("ABILITYDRAFT_TRACE_MATCH_START") == "1" && DateTime.UtcNow >= nextPreparationAudit)
+        {
+            nextPreparationAudit = DateTime.UtcNow.AddSeconds(5);
+            Log($"Preparation clock: state={GameRules.GameState}, worker={workerState}, time={NativeGameTime.Now:R}, sdkTime={GlobalVars.CurTime:R}, tick={GlobalVars.TickCount}, interval={NativeGameTime.Interval:R}, deadline={preparation.EndsAt}, nativeEnd={GameRules.GameStateEndTime:R}, paused={GameRules.GamePaused}/{GameRules.ServerPaused}, roster={count}/{required}");
+        }
         if (workerLastCount != count)
         {
             workerLastCount = count;
@@ -140,7 +156,7 @@ public sealed partial class AbilityDraftPlugin
                     LogPregameTroopers();
                     foreach (var member in result.Players)
                         preparationArea.Enter(RuntimePlayerId.For(member), member.Team == "HiddenKing" ? 2 : 3);
-                    preparation.Begin(GlobalVars.CurTime);
+                    preparation.Begin(NativeGameTime.Now);
                     GameRules.SetGameStateEndTime(preparation.EndsAt!.Value);
                     Log("All drafted players connected; starting 30-second native pregame preparation for " + result.ResultId);
                     foreach (var session in sessions.Values)
@@ -149,7 +165,7 @@ public sealed partial class AbilityDraftPlugin
                 }
                 applier.VerifyPrepared(result);
                 preparationArea.Tick();
-                if (preparation.CanStart(GlobalVars.CurTime, rosterReady: true))
+                if (preparation.CanStart(NativeGameTime.Now, rosterReady: true))
                 {
                     ReleasePreparedMatch(); workerState = "Playing";
                 }

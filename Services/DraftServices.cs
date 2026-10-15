@@ -510,7 +510,8 @@ public sealed class DraftRoomService(
     ZipExportService zipExportService,
     DeadPackerService deadPackerService,
     DraftStatsService draftStatsService,
-    IOptions<DraftTimingOptions> timingOptions)
+    IOptions<DraftTimingOptions> timingOptions,
+    abilitydraft.Services.InGame.GameNodeCoordinator? gameNodes = null)
 {
     private readonly ConcurrentDictionary<string, DraftRoom> _rooms = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, Timer> _roomTimers = new(StringComparer.OrdinalIgnoreCase);
@@ -599,8 +600,9 @@ public sealed class DraftRoomService(
         return removed;
     }
 
-    public JoinRoomResult CreateRoom(string roomName, string hostName, DeadlockTeam hostTeam, DraftRoomConfig config)
+    public JoinRoomResult CreateRoom(string roomName, string hostName, DeadlockTeam hostTeam, DraftRoomConfig config, string? gameNodeId = null)
     {
+        if (gameNodeId is not null) gameNodes?.RequireAvailable(gameNodeId);
         var snapshot = dataService.Current;
         if (snapshot.Data is null)
         {
@@ -617,6 +619,7 @@ public sealed class DraftRoomService(
         var room = new DraftRoom
         {
             Code = code,
+            GameNodeId = abilitydraft.Services.InGame.GameNodeCoordinator.NormalizeNodeId(gameNodeId),
             Name = string.IsNullOrWhiteSpace(roomName) ? "Deadlock Ability Draft" : roomName.Trim(),
             DeadlockData = snapshot.Data,
             Bans = snapshot.Bans
@@ -711,6 +714,7 @@ public sealed class DraftRoomService(
                 throw new InvalidOperationException("Room settings can only be changed before the draft starts.");
             }
 
+            if (room.InGameManaged) abilitydraft.Services.InGame.InGameRoomAdapter.ValidateRuntimeConfig(config);
             ApplyRoomConfig(room.Config, config, room.DeadlockData, timingOptions.Value, room.Clients);
         }
 
@@ -1000,6 +1004,8 @@ public sealed class DraftRoomService(
             {
                 throw new InvalidOperationException("Draft already started.");
             }
+
+            if (room.InGameManaged) abilitydraft.Services.InGame.InGameRoomAdapter.ValidateRuntimeConfig(room.Config);
 
             var playerClients = PlayerClients(room).ToList();
             if (playerClients.Count == 0)
@@ -1308,6 +1314,9 @@ public sealed class DraftRoomService(
         {
             throw new InvalidOperationException("Ability has already been picked.");
         }
+
+        if (room.InGameManaged && (slot.Loadout.RegularAbilities.Contains(pickedKey) || slot.Loadout.Ultimate == pickedKey))
+            throw new InvalidOperationException("In-game matches allow the same ability on different players, but each player's four abilities must be distinct.");
 
         var ability = room.DeadlockData.Abilities.FirstOrDefault(item => item.Key == pickedKey)
                       ?? throw new InvalidOperationException("Ability was not found in abilities.vdata.");
@@ -2663,12 +2672,12 @@ public sealed class ModFileGenerator
         {
             if (!heroesDocument.Root.TryGetValue(player.HeroKey!, out var heroValue) || heroValue is not Kv3Object heroObject)
             {
-                continue;
+                throw new InvalidOperationException($"Drafted hero '{player.HeroKey}' is missing from heroes.vdata.");
             }
 
             if (!heroObject.TryGetValue("m_mapBoundAbilities", out var boundValue) || boundValue is not Kv3Object boundAbilities)
             {
-                continue;
+                throw new InvalidOperationException($"Drafted hero '{player.HeroKey}' has no bound ability map.");
             }
 
             heroObject.Set("m_bDisabled", new Kv3Scalar(false));
@@ -2676,7 +2685,9 @@ public sealed class ModFileGenerator
             heroObject.Set("m_bInDevelopment", new Kv3Scalar(false));
             heroObject.Set("m_bAvailableInHeroLabs", new Kv3Scalar(false));
 
-            boundAbilities.Set("ESlot_Weapon_Primary", new Kv3Scalar(player.Loadout.Weapon ?? string.Empty));
+            // Keep the stock weapon if a runtime-created loadout omits an override.
+            if (!string.IsNullOrWhiteSpace(player.Loadout.Weapon))
+                boundAbilities.Set("ESlot_Weapon_Primary", new Kv3Scalar(player.Loadout.Weapon));
             var signatureAbilities = EnsureUnique(SlotAbilities(room, player, abilitiesDocument), abilitiesDocument);
 
             for (var i = 0; i < signatureAbilities.Count; i++)
@@ -2707,7 +2718,7 @@ public sealed class ModFileGenerator
         }
 
         var slotAbilities = new List<string>();
-        for (var i = 0; i < Math.Max(4, room.Config.RequiredAbilitySlots); i++)
+        for (var i = 0; i < 4; i++)
         {
             var ability = player.Loadout.RegularAbilities.ElementAtOrDefault(i) ?? string.Empty;
             slotAbilities.Add(i == 3
@@ -2720,58 +2731,55 @@ public sealed class ModFileGenerator
 
     private static string EnsureType(string abilityName, string abilityType, string suffix, Kv3Document abilitiesDocument)
     {
-        if (string.IsNullOrWhiteSpace(abilityName))
+        if (string.IsNullOrWhiteSpace(abilityName) ||
+            !abilitiesDocument.Root.TryGetValue(abilityName, out var value) || value is not Kv3Object abilityObject)
+            throw new InvalidOperationException($"Drafted ability '{abilityName}' is missing from abilities.vdata.");
+
+        if (string.Equals(DeadlockFileParser.GetString(abilityObject, "m_eAbilityType"), abilityType, StringComparison.Ordinal))
         {
             return abilityName;
         }
 
-        if (abilitiesDocument.Root.TryGetValue(abilityName, out var value) &&
-            value is Kv3Object abilityObject &&
-            string.Equals(DeadlockFileParser.GetString(abilityObject, "m_eAbilityType"), abilityType, StringComparison.Ordinal))
-        {
-            return abilityName;
-        }
-
-        var generatedName = $"{abilityName}_{suffix}";
-        abilitiesDocument.Root.Set(generatedName, MakeMultibaseAbility(abilityName, abilityType));
-        return generatedName;
+        return CloneAbility(abilityName, suffix, abilityType, abilitiesDocument);
     }
 
     private static List<string> EnsureUnique(IReadOnlyList<string> abilities, Kv3Document abilitiesDocument)
     {
-        var countMap = new Dictionary<string, int>(StringComparer.Ordinal);
+        var used = new HashSet<string>(StringComparer.Ordinal);
         var output = new List<string>();
         foreach (var ability in abilities)
         {
-            if (!countMap.TryGetValue(ability, out var count))
+            if (used.Add(ability))
             {
-                countMap[ability] = 0;
                 output.Add(ability);
                 continue;
             }
 
-            count++;
-            countMap[ability] = count;
-            var generatedName = $"{ability}_{count}";
-            abilitiesDocument.Root.Set(generatedName, MakeMultibaseAbility(ability, null));
+            var generatedName = CloneAbility(ability, "duplicate", null, abilitiesDocument);
+            used.Add(generatedName);
             output.Add(generatedName);
         }
 
         return output;
     }
 
-    private static Kv3Object MakeMultibaseAbility(string sourceAbility, string? abilityType)
+    private static string CloneAbility(string sourceAbility, string purpose, string? abilityType, Kv3Document document)
     {
-        var obj = new Kv3Object();
-        var bases = new Kv3Array();
-        bases.Items.Add(new Kv3Scalar(sourceAbility));
-        obj.Set("_multibase", bases);
+        if (!document.Root.TryGetValue(sourceAbility, out var source) || source is not Kv3Object)
+            throw new InvalidOperationException($"Cannot clone missing ability '{sourceAbility}'.");
+        // Copy the native class and nested modifiers under an unused name.
+        var obj = (Kv3Object)source.Clone();
         if (!string.IsNullOrWhiteSpace(abilityType))
         {
             obj.Set("m_eAbilityType", new Kv3Scalar(abilityType));
         }
 
-        return obj;
+        var index = 1;
+        string key;
+        do { key = $"{sourceAbility}_abilitydraft_{purpose}_{index++}"; }
+        while (document.Root.ContainsKey(key));
+        document.Root.Set(key, obj);
+        return key;
     }
 
 }
@@ -3292,9 +3300,19 @@ public sealed class DeadPackerService(IOptions<DeadPackerOptions> options, IWebH
             return (false, "Could not start resourcecompiler.exe.");
         }
 
-        var stdout = process.StandardOutput.ReadToEnd();
-        var stderr = process.StandardError.ReadToEnd();
-        process.WaitForExit();
+        // Read both pipes concurrently so neither can block compilation.
+        var stdoutTask = process.StandardOutput.ReadToEndAsync();
+        var stderrTask = process.StandardError.ReadToEndAsync();
+        if (!process.WaitForExit(180000))
+        {
+            process.Kill(entireProcessTree: true);
+            process.WaitForExit();
+            log.AppendLine(stdoutTask.GetAwaiter().GetResult());
+            log.AppendLine(stderrTask.GetAwaiter().GetResult());
+            return (false, "Resource compilation timed out after three minutes.");
+        }
+        var stdout = stdoutTask.GetAwaiter().GetResult();
+        var stderr = stderrTask.GetAwaiter().GetResult();
 
         log.AppendLine();
         log.AppendLine("=== resourcecompiler stdout ===");

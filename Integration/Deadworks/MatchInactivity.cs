@@ -20,14 +20,14 @@ public sealed partial class AbilityDraftPlugin
         foreach (var command in args.Usercmds)
             active |= NativePlayerInput.HasActivity(command, ref buttons);
         lastInputButtons[args.PlayerSlot] = buttons;
-        inactivity.Observe(args.PlayerSlot, GameRules.GameClock, active);
+        inactivity.Observe(args.PlayerSlot, NativeGameTime.MatchClock, active);
     }
 
     private void RecordMatchActivity(CCitadelPlayerController player)
     {
         if (sessions.TryGetValue(player.PlayerSteamId.ToString(), out var session)) session.LastActivityUtc = DateTime.UtcNow;
         if (workerResult is not null && matchReleased && workerState == "Playing" && workerResult.IsPlayer(player.PlayerSteamId.ToString()))
-            inactivity.Observe(player.Slot, GameRules.GameClock, active: true);
+            inactivity.Observe(player.Slot, NativeGameTime.MatchClock, active: true);
     }
 
     private DateTime nextLobbyInactivityCheck;
@@ -49,7 +49,7 @@ public sealed partial class AbilityDraftPlugin
     private void TickInactivity()
     {
         if (!matchReleased || workerState != "Playing" || GameRules.GamePaused || GameRules.ServerPaused) return;
-        var now = GameRules.GameClock;
+        var now = NativeGameTime.MatchClock;
         if (now < nextInactivityCheck) return;
         nextInactivityCheck = now + 1;
         var players = Players.GetAll().Where(p => workerResult!.IsPlayer(p.PlayerSteamId.ToString()) &&

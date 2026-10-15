@@ -9,6 +9,7 @@
 @inject IOptions<DraftTimingOptions> TimingOptions
 @inject IJSRuntime JS
 @inject abilitydraft.Services.InGame.InGameRoomAdapter InGameAdapter
+@inject abilitydraft.Services.InGame.GameNodeCoordinator GameNodes
 
 <PageTitle>Create Draft Room</PageTitle>
 
@@ -71,6 +72,10 @@
                 <option value="@DraftMode.Custom">Custom: advanced room-specific rules</option>
             </select>
         </label>
+        @if (UseGameServers)
+        {
+            <GameNodeSelector SelectedChanged="ServerChanged" />
+        }
         @if (SelectedDraftMode == DraftMode.Custom)
         {
             @CustomSettingsPanel()
@@ -83,7 +88,7 @@
             <input type="checkbox" @bind="AllowBots" />
             <span>Allow empty slots as bots</span>
         </label>
-        <button class="primary" disabled="@(!Snapshot.IsLoaded)" @onclick="Create">Create room</button>
+        <button class="primary" disabled="@(!Snapshot.IsLoaded || (UseGameServers && SelectedGameNode is null))" @onclick="Create">@(UseGameServers && SelectedGameNode is null ? "No game servers available" : "Create room")</button>
         @if (!string.IsNullOrWhiteSpace(Message))
         {
             <p class="message">@Message</p>
@@ -93,6 +98,9 @@
 </main>
 
 @code {
+    private string? SelectedGameNode;
+    private bool UseGameServers => IsGameEntry && GameNodes.Enabled;
+    private void ServerChanged(string? id) => SelectedGameNode = id;
     [SupplyParameterFromQuery(Name = "gameEntry")] public string? GameEntry { get; set; }
     private bool IsGameEntry => !string.IsNullOrWhiteSpace(GameEntry);
     private string RoomName = "Deadlock Ability Draft";
@@ -144,8 +152,13 @@
     {
         try
         {
+            if (UseGameServers)
+            {
+                if (SelectedGameNode is null) throw new InvalidOperationException("No game servers available. Wait for a server to become available.");
+                GameNodes.RequireAvailable(SelectedGameNode);
+            }
             var result = IsGameEntry
-                ? InGameAdapter.CreateFromWebsite(GameEntry!, RoomName, SelectedTeam, BuildDraftConfig())
+                ? InGameAdapter.CreateFromWebsite(GameEntry!, RoomName, SelectedTeam, BuildDraftConfig(), SelectedGameNode)
                 : RoomService.CreateRoom(RoomName, HostName, SelectedTeam, BuildDraftConfig());
             Nav.NavigateTo($"/room/{result.RoomCode}/lobby?playerId={result.PlayerId}" + (IsGameEntry ? "&inGame=true" : ""));
         }
@@ -266,7 +279,7 @@
 
             <div class="custom-toggle-grid">
                 <label class="toggle"><input type="checkbox" @bind="CustomAllowDuplicateAbilities" /><span>Allow duplicate abilities</span></label>
-                <label class="toggle"><input type="checkbox" @bind="CustomFlexibleUltimates" /><span>Flexible ultimate slots</span></label>
+                <label class="toggle"><input type="checkbox" @bind="CustomFlexibleUltimates" disabled="@IsGameEntry" /><span>Flexible ultimate slots@(IsGameEntry ? " (website export only)" : "")</span></label>
                 <label class="toggle"><input type="checkbox" @bind="CustomBlindDraft" /><span>Blind draft</span></label>
                 <label class="toggle"><input type="checkbox" @bind="CustomFullRandom" /><span>Full Random</span></label>
                 <label class="toggle"><input type="checkbox" @bind="AllowHostOverride" /><span>Allow host override picks/reorder for human slots</span></label>

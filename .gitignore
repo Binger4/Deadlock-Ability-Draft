@@ -69,7 +69,9 @@ Desktop.ini
 # Local investigation notes; public setup guides are kept below.
 Integration/*.md
 !Integration/HOSTING.md
+!Integration/INSTALLATION.md
 !Integration/RUNNING.md
+!Integration/GAME-NODES.md
 *.dmp
 *.mdmp
 *.vpk

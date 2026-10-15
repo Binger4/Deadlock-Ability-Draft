@@ -1,0 +1,20 @@
+import assert from 'node:assert/strict';
+import { median, start, stop } from '../../wwwroot/game-node-latency.mjs';
+assert.equal(median([34, 31, 800, 30, 32]), 32);
+assert.equal(median([20, 30]), 25);
+assert.equal(median([NaN, Infinity, -1]), null);
+globalThis.location = { href: 'https://draft.example.org/create' };
+let requests = 0, updates = 0;
+globalThis.fetch = async (url, options) => {
+    requests++;
+    assert.equal(options.credentials, 'omit');
+    assert.equal(options.cache, 'no-store');
+    assert.equal(new URL(url).origin, 'https://node.example.org');
+    return { ok: true, arrayBuffer: async () => new ArrayBuffer(0) };
+};
+const session = start({ invokeMethodAsync: async (_, results) => { updates++; assert.ok(results.node.ms >= 0); } }, [{ id: 'node', publicProbeUrl: 'https://node.example.org/ping' }]);
+await new Promise(resolve => setTimeout(resolve, 30));
+assert.equal(requests, 3);
+assert.equal(updates, 1);
+stop(session);
+console.log('PASS median, browser-to-node requests, cache/credential isolation, initial sampling and disposal');

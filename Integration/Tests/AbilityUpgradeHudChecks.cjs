@@ -48,6 +48,24 @@ state.abilities[0].canTrain = true; api.update(source);
 pips[0].FindChildTraverse('AbilityDraftTier2').onactivate();
 assert.deepEqual(commands.at(-1), ['CitadelConCommand', 'trainorupgradeability 1']);
 assert.equal(state.abilities[0].bits, 3); // Wait for the authoritative update.
+// RMB is independent of upgrade affordability and never changes local ranks.
+const beforeUndo = commands.length;
+click(0).oncontextmenu();
+assert.equal(commands.length, beforeUndo);
+state.abilities[0].canTrain = false;
+state.abilities[0].canUndo = true;
+api.update(source);
+assert.equal(pips[0].FindChildTraverse('AbilityDraftTier1').enabled, true);
+click(0).oncontextmenu();
+assert.deepEqual(commands.at(-1), ['CitadelConCommand', 'ad_undo_ability 1']);
+pips[0].FindChildTraverse('AbilityDraftTier1').oncontextmenu();
+assert.deepEqual(commands.at(-1), ['CitadelConCommand', 'ad_undo_ability 1']);
+assert.equal(state.abilities[0].bits, 3);
+const beforeExpiry = commands.length;
+state.abilities[0].canUndo = false; api.update(source);
+click(0).oncontextmenu();
+assert.equal(commands.length, beforeExpiry);
+assert.equal(pips[0].FindChildTraverse('AbilityDraftTier1').enabled, false);
 state.enabled = false; api.update(source);
 assert(native.every(p => p.style.visibility === 'visible'));
 assert(icons.every((_, i) => !click(i)));

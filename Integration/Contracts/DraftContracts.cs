@@ -40,6 +40,7 @@ public sealed record DraftParticipantResult(string ParticipantId, string? SteamI
 public sealed record DraftResult(int ProtocolVersion, string ResultId, string RoomCode,
     DateTime CompletedUtc, DateTime FinalizedUtc, DraftParticipantResult[] Players)
 {
+    public string GameNodeId { get; init; } = "main";
     public DraftSpectator[] Spectators { get; init; } = [];
     public string Source { get; init; } = "web";
     public string DraftMode { get; init; } = "";

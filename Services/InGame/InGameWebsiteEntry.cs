@@ -71,14 +71,15 @@ public sealed partial class InGameRoomAdapter
         lock (gate) return BrowserAdmission(token).Name;
     }
 
-    public JoinRoomResult CreateFromWebsite(string token, string roomName, DeadlockTeam team, DraftRoomConfig config)
+    public JoinRoomResult CreateFromWebsite(string token, string roomName, DeadlockTeam team, DraftRoomConfig config, string? gameNodeId = null)
     {
         lock (gate)
         {
             var entry = BrowserAdmission(token);
             EnsureNoMembership(entry.Steam);
             EnsureNotQueued(entry.Steam);
-            var joined = rooms.CreateRoom(roomName, entry.Name, team, config);
+            ValidateRuntimeConfig(config);
+            var joined = rooms.CreateRoom(roomName, entry.Name, team, config, gameNodeId);
             var room = rooms.GetRoom(joined.RoomCode)!;
             room.InGameManaged = true;
             lock (room) Bind(room, room.Clients.Single(c => c.PlayerId == joined.PlayerId), entry.Steam, fromBrowser: true);
@@ -86,6 +87,12 @@ public sealed partial class InGameRoomAdapter
             logger.LogInformation("In-game website created and linked room {Room}", room.Code);
             return joined;
         }
+    }
+
+    public static void ValidateRuntimeConfig(DraftRoomConfig config)
+    {
+        if (config.DraftMode == DraftMode.Custom && config.FlexibleUltimateSlots)
+            throw new InvalidOperationException("In-game matches require three regular abilities and one ultimate. Flexible ultimate slots are available with the website VPK export.");
     }
 
     public WebsiteEntry JoinFromWebsite(string token, string code, DeadlockTeam team)

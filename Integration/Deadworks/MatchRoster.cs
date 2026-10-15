@@ -46,7 +46,7 @@ public sealed partial class AbilityDraftPlugin
         var phase = workerState == "Failed" ? "Failed" : workerState == "Completed" ? "Completed" :
             matchReleased ? "Playing" : preparation.EndsAt is not null ? "Preparation" : GameRules.GameState == EGameState.MatchIntro ? "Intro" : "Connecting";
         var json = JsonSerializer.Serialize(new { phase,
-            seconds = phase == "Preparation" ? preparation.Remaining(GlobalVars.CurTime) : 0, players }, Json).Replace("^", "\\u005E");
+            seconds = phase == "Preparation" ? preparation.Remaining(NativeGameTime.Now) : 0, players }, Json).Replace("^", "\\u005E");
         foreach (var session in sessions.Values)
         {
             if (session.LastMatchRoster == json || Players.FromSlot(session.Slot) is not { } player) continue;

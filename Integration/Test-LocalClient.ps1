@@ -3,6 +3,7 @@ param(
     [string]$PackageDirectory = (Join-Path $PSScriptRoot 'dist')
 )
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'AbilityDraftPackage.ps1')
 if (!$GameRoot) {
     $localSettings = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'local/settings.json') -Raw | ConvertFrom-Json
     $GameRoot = $localSettings.GameRoot
@@ -20,13 +21,15 @@ $paths = [regex]::Matches($search[0].Groups[1].Value, '(?m)^[\t ]*Game[\t ]+"?(c
 if ($paths.Count -eq 0) {
     throw 'Ability Draft addon mounting is disabled in game/citadel/gameinfo.gi. Close Deadlock and run Integration/Install-LocalAddon.ps1 to restore the Game citadel/addons search path and install the current package.'
 }
+$current = $null
 foreach ($path in $paths) {
     $directory = Join-Path (Join-Path $GameRoot 'game') $path.Groups[1].Value
     foreach ($file in Get-ChildItem -LiteralPath $directory -Filter '*.vpk' -File -ErrorAction SilentlyContinue) {
-        if ((Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash -eq $manifest.Sha256) {
-            Write-Output ('Verified complete player VPK: ' + $file.FullName)
-            return
+        if ((Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash -eq $manifest.Sha256) { $current = $file.FullName }
+        elseif (Test-AbilityDraftPackage $file.FullName) {
+            throw ('An older Ability Draft VPK is also mounted: ' + $file.FullName + '. Close Deadlock and run Integration/Install-LocalAddon.ps1 to update every Ability Draft copy.')
         }
     }
 }
+if ($current) { Write-Output ('Verified complete player VPK: ' + $current); return }
 throw 'The current Ability Draft VPK was not found on an enabled game search path. It may be missing or older than the latest local build. Close Deadlock and run Integration/Install-LocalAddon.ps1, or replace its Ability Draft VPK in game/citadel/addons with Integration/dist/ability_draft_base.vpk (keep the installed pakNN_dir.vpk name). Building alone does not install the VPK. See Integration/HOSTING.md: Updating after a game patch.'

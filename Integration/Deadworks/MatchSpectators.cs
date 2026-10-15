@@ -23,7 +23,10 @@ public sealed partial class AbilityDraftPlugin
         }
         else workerSpectators = workerResult!.Spectators.ToDictionary(s => s.SteamId64);
         var revoked = Path.Combine(workerDirectory!, "abandoned.json");
-        return File.Exists(revoked) ? JsonSerializer.Deserialize<HashSet<string>>(File.ReadAllText(revoked), Json) ?? [] : [];
+        var abandoned = File.Exists(revoked) ? JsonSerializer.Deserialize<HashSet<string>>(File.ReadAllText(revoked), Json) ?? [] : [];
+        var local = Path.Combine(workerDirectory!, "local-abandoned.json");
+        if (File.Exists(local)) abandoned.UnionWith(JsonSerializer.Deserialize<HashSet<string>>(File.ReadAllText(local), Json) ?? []);
+        return abandoned;
     }
 
     // Use the SDK's native observer pawn, never a hero with spectator-like movement.

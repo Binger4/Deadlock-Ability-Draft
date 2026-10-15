@@ -33,16 +33,16 @@ public sealed partial class AbilityDraftPlugin
 
     private void AuditLanes()
     {
-        if (workerResult is null || !GameRules.IsValid || GlobalVars.CurTime < nextLaneAudit) return;
-        nextLaneAudit = GlobalVars.CurTime + 0.25f;
-        var arrivalSecond = (int)GameRules.GameClock;
+        if (workerResult is null || !GameRules.IsValid || NativeGameTime.Now < nextLaneAudit) return;
+        nextLaneAudit = NativeGameTime.Now + 0.25f;
+        var arrivalSecond = (int)NativeGameTime.MatchClock;
         var auditArrival = Environment.GetEnvironmentVariable("ABILITYDRAFT_TRACE_MATCH_START") == "1" &&
             matchReleased && arrivalSecond is >= 0 and <= 20 && arrivalSecond != lastArrivalSecond;
         if (auditArrival) lastArrivalSecond = arrivalSecond;
         foreach (var player in Players.GetAll())
         {
             var lanes = (AssignedLane.Get(player.Handle), OriginalLane.Get(player.Handle));
-            if (matchReleased && GameRules.GameClock < 20 && player.GetHeroPawn() is { } pawn)
+            if (matchReleased && NativeGameTime.MatchClock < 20 && player.GetHeroPawn() is { } pawn)
             {
                 var zipline = pawn.AbilityComponent.Abilities.FirstOrDefault(a => a.AbilityName == "citadel_ability_zip_line");
                 if (zipline is not null)
@@ -53,7 +53,7 @@ public sealed partial class AbilityDraftPlugin
                     if (lastIntroLanes.GetValueOrDefault(player.EntityHandle, -1) != attached)
                     {
                         lastIntroLanes[player.EntityHandle] = attached;
-                        Log($"Intro lane handoff slot {player.Slot}: assigned={lanes.Item1}, zipline={attached}, clock={GameRules.GameClock:F1}");
+                        Log($"Intro lane handoff slot {player.Slot}: assigned={lanes.Item1}, zipline={attached}, clock={NativeGameTime.MatchClock:F1}");
                     }
                 }
             }

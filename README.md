@@ -16,9 +16,10 @@ The website's original workflow is still available: draft in your browser and do
 
 ## Installation
 
-1. Install [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0).
-2. Download CSDK 12 from [Deadlock Modding: CSDK 12](https://deadlockmodding.pages.dev/modding-tools/csdk-12).
-3. Extract CSDK 12 here:
+1. Download and install **[Visual C++ Redistributable 2015–2022 x64](https://aka.ms/vs/17/release/vc_redist.x64.exe)**.
+2. Install [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0).
+3. Download CSDK 12 from [Deadlock Modding: CSDK 12](https://deadlockmodding.pages.dev/modding-tools/csdk-12).
+4. Extract CSDK 12 here:
 
 ```text
 Tools/Reduced_CSDK_12/
@@ -27,16 +28,16 @@ Tools/Reduced_CSDK_12/
 The website example config uses this compiler path:
 
 ```text
-Tools/Reduced_CSDK_12/game/bin_tools/win64/resourcecompiler.exe
+Tools/Reduced_CSDK_12/game/bin_cs2/win64/resourcecompiler.exe
 ```
 
-4. Create the local config:
+5. Create the local config:
 
 ```powershell
 Copy-Item appsettings.example.json appsettings.json
 ```
 
-5. Run the app:
+6. Run the app:
 
 ```powershell
 dotnet run
@@ -310,7 +311,6 @@ Copy-Item appsettings.example.json appsettings.json
 ```
 
 Example `appsettings.json`:
-
 ```json
 {
   "InGame": {
@@ -331,9 +331,14 @@ Example `appsettings.json`:
       "GameRoot": "",
       "StateDirectory": "",
       "BackendUrl": "http://127.0.0.1:5050/",
-      "WebsiteUrl": "http://localhost:5050/",
+      "WebsiteUrl": "https://localhost:7050/",
       "CustomPort": 27067,
       "PublicPort": 27068
+    },
+    "GameNode": {
+      "Region": "Region 1",
+      "Name": "Main server",
+      "PublicProbeUrl": "/game-nodes/ping"
     }
   },
   "Logging": {
@@ -351,7 +356,7 @@ Example `appsettings.json`:
   "DeadPacker": {
     "Enabled": true,
     "ExecutablePath": "Tools/DeadPacker/DeadPacker.exe",
-    "ResourceCompilerPath": "Tools/Reduced_CSDK_12/game/bin_tools/win64/resourcecompiler.exe",
+    "ResourceCompilerPath": "Tools/Reduced_CSDK_12/game/bin_cs2/win64/resourcecompiler.exe",
     "AddonName": "deadlock_ability_draft",
     "GameRootPath": "Tools/Reduced_CSDK_12/game",
     "AddonContentDirectory": "Tools/Reduced_CSDK_12/content/citadel_addons/deadlock_ability_draft",
@@ -377,6 +382,44 @@ Example `appsettings.json`:
     "Username": "admin",
     "Password": "admin"
   },
-  "AllowedHosts": "*"
+  "AllowedHosts": "*",
+  "GameNodes": {
+    "StateDirectory": "App_Data/game-nodes",
+    "RemoteNodes": [
+      {
+        "Region": "Region 1",
+        "MaxWorkers": 4,
+        "Enabled": false,
+        "FirstGamePort": 27069,
+        "Name": "Game server 1",
+        "Id": "node-01",
+        "Secret": "",
+        "PublicGameHost": "node1.example.org",
+        "PublicProbeUrl": "https://node1.example.org/ping"
+      }
+    ],
+    "HeartbeatTimeoutSeconds": 30,
+    "TrustedProxyAddresses": [
+      "127.0.0.1",
+      "::1"
+    ]
+  }
 }
 ```
+
+## In-game documentation
+
+- [Complete in-game installation and build-tool setup](Integration/INSTALLATION.md)
+- [Local hosting and player flows](Integration/RUNNING.md)
+- [Public server hosting, networking and updates](Integration/HOSTING.md)
+- [Optional distributed Game Nodes](Integration/GAME-NODES.md)
+
+
+![Screenshot](https://i.imgur.com/wU83cxB.jpeg)
+
+
+## Optional distributed Game Nodes
+
+Add [Remote Game Nodes](https://github.com/Binger4/Deadlock-Ability-Draft-Game-Node) to run matches on other machines or in other regions. MAIN hosts the website and drafts. The game client's Create Lobby form lets players choose a server by availability and ping; match counts and capacity appear in admin.
+
+See [MAIN configuration](Integration/GAME-NODES.md), [agent installation](https://github.com/Binger4/Deadlock-Ability-Draft-Game-Node#install-on-windows) and the [second-machine deployment guide](https://github.com/Binger4/Deadlock-Ability-Draft-Game-Node/blob/main/DEPLOYMENT.md).

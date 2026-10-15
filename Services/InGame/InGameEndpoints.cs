@@ -21,6 +21,10 @@ public static class InGameEndpoints
         services.AddSingleton<IMatchWorkerHost, WindowsMatchWorkerHost>();
         services.AddSingleton<MatchWorkerCoordinator>();
         services.AddHostedService(provider => provider.GetRequiredService<MatchWorkerCoordinator>());
+        services.Configure<MainGameNodeOptions>(config.GetSection("InGame:GameNode"));
+        services.Configure<GameNodeOptions>(config.GetSection("GameNodes"));
+        services.AddSingleton<GameNodeCoordinator>();
+        services.AddHostedService(provider => provider.GetRequiredService<GameNodeCoordinator>());
         services.Configure<DraftServerOptions>(config.GetSection("InGame:DraftServers"));
         services.AddSingleton<IDraftServerHost, WindowsDraftServerHost>();
         services.AddSingleton<DraftServerSupervisor>();
@@ -106,19 +110,19 @@ public static class InGameEndpoints
                 LastActivityUtc: adapter.LastWebsiteActivity(http.Request.Headers["X-Steam-Id"].ToString())));
         group.MapGet("/result", (HttpContext http, InGameRoomAdapter adapter) =>
             adapter.Result(http.Request.Headers["X-Steam-Id"].ToString()));
-        group.MapPost("/match", (HttpContext http, InGameRoomAdapter adapter, MatchWorkerCoordinator workers, ServerDeadlockDataService data) =>
+        group.MapPost("/match", (HttpContext http, InGameRoomAdapter adapter, GameNodeCoordinator workers, ServerDeadlockDataService data) =>
         {
             var result = adapter.MatchResult(http.Request.Headers["X-Steam-Id"].ToString(), requireHost: true);
             var parsed = data.Current.Data ?? throw new InvalidOperationException("Draft data is not available.");
             var catalog = ResourceCatalog(parsed);
             return workers.Request(result, catalog);
         });
-        group.MapGet("/match", (HttpContext http, InGameRoomAdapter adapter, MatchWorkerCoordinator workers) =>
+        group.MapGet("/match", (HttpContext http, InGameRoomAdapter adapter, GameNodeCoordinator workers) =>
         {
             var steam = http.Request.Headers["X-Steam-Id"].ToString();
             var result = adapter.MatchResult(steam, requireHost: false);
             if (adapter.MatchSpectator(steam) is { } spectator) workers.AdmitSpectator(result.ResultId, spectator);
-            return workers.Get(result.ResultId) ?? new MatchView("", result.ResultId, "Idle", null,
+            return workers.Get(result.ResultId, steam) ?? new MatchView("", result.ResultId, "Idle", null,
                 result.Source == "public" ? "Ready to start." : "Waiting for the host to start the match.");
         });
         group.MapGet("/website", (HttpContext http, InGameRoomAdapter adapter) =>
@@ -141,7 +145,7 @@ public static class InGameEndpoints
             adapter.Disconnect(http.Request.Headers["X-Steam-Id"].ToString());
             return Results.NoContent();
         });
-        group.MapPost("/abandon", (RoomCommand command, HttpContext http, InGameRoomAdapter adapter, MatchWorkerCoordinator workers) =>
+        group.MapPost("/abandon", (RoomCommand command, HttpContext http, InGameRoomAdapter adapter, GameNodeCoordinator workers) =>
         {
             var steam = http.Request.Headers["X-Steam-Id"].ToString();
             var result = adapter.Abandon(steam, command.Key);

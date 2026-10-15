@@ -122,6 +122,9 @@ public sealed class Kv3Parser
 
         parser.SkipWhiteSpaceAndComments();
         doc.Root = parser.ParseObject();
+        parser.SkipWhiteSpaceAndComments();
+        if (parser._position != text.Length)
+            throw new FormatException($"Unexpected content after KV3 document at position {parser._position}.");
         return doc;
     }
 
@@ -164,6 +167,8 @@ public sealed class Kv3Parser
             return ParseArray();
         }
 
+        // Quoted values remain strings, including "0", "false" and "null".
+        if (current == '"') return new Kv3Scalar(ReadToken());
         var token = ReadToken();
         SkipWhiteSpaceAndComments();
         if (TryConsume(':'))
@@ -292,6 +297,14 @@ public sealed class Kv3Parser
                 continue;
             }
 
+            if (PeekString("/*"))
+            {
+                var end = _text.IndexOf("*/", _position + 2, StringComparison.Ordinal);
+                if (end < 0) throw new FormatException("Unterminated comment in KV3 document.");
+                _position = end + 2;
+                continue;
+            }
+
             break;
         }
     }
@@ -401,10 +414,13 @@ public static class Kv3Writer
         bool boolValue => boolValue ? "true" : "false",
         long longValue => longValue.ToString(CultureInfo.InvariantCulture),
         int intValue => intValue.ToString(CultureInfo.InvariantCulture),
-        double doubleValue => doubleValue.ToString(CultureInfo.InvariantCulture),
-        float floatValue => floatValue.ToString(CultureInfo.InvariantCulture),
+        double doubleValue => FormatFloatingPoint(doubleValue.ToString("R", CultureInfo.InvariantCulture)),
+        float floatValue => FormatFloatingPoint(floatValue.ToString("R", CultureInfo.InvariantCulture)),
         _ => $"\"{EscapeString(value.ToString() ?? string.Empty)}\""
     };
+
+    private static string FormatFloatingPoint(string value) =>
+        value.IndexOfAny(['.', 'E', 'e']) >= 0 ? value : value + ".0";
 
     private static string EscapeKey(string key) => NeedsQuotes(key) ? $"\"{EscapeString(key)}\"" : key;
     private static bool NeedsQuotes(string value)
@@ -416,6 +432,6 @@ public static class Kv3Writer
 
         return value.Any(ch => !char.IsLetterOrDigit(ch) && ch != '_');
     }
-    private static string EscapeString(string value) => value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal).Replace("\r", "\\r", StringComparison.Ordinal).Replace("\n", "\\n", StringComparison.Ordinal);
+    private static string EscapeString(string value) => value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal).Replace("\r", "\\r", StringComparison.Ordinal).Replace("\n", "\\n", StringComparison.Ordinal).Replace("\t", "\\t", StringComparison.Ordinal);
     private static void Indent(StringBuilder builder, int depth) => builder.Append('\t', depth);
 }

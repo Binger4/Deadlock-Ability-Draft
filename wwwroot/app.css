@@ -2350,3 +2350,24 @@ h3 {
 .stats-pagination { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; margin: 1rem 0; }
 .stats-pagination span { flex: 1; text-align: center; }
 .stats-match-players { display: grid; gap: .8rem; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); margin: 1rem 0; }
+
+/* Compact Game Node selector and unified hosting status. */
+.game-node-selector { display: grid; gap: 6px; position: relative; }
+.game-node-selector > span { font-weight: 600; }
+.game-node-selector details { position: relative; }
+.game-node-selector summary { display: flex; justify-content: space-between; gap: 12px; cursor: pointer; padding: 12px 14px; border: 1px solid #43505e; border-radius: 8px; background: #17202a; color: #eef3f8; list-style: none; }
+.game-node-selector summary::-webkit-details-marker { display: none; }
+.game-node-options { position: absolute; z-index: 25; top: calc(100% + 4px); left: 0; right: 0; padding: 5px; border: 1px solid #43505e; border-radius: 8px; background: #17202a; box-shadow: 0 12px 28px #0008; max-height: 290px; overflow-y: auto; }
+.game-node-option { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; text-align: left; padding: 10px; border: 1px solid transparent; background: transparent; color: #eef3f8; border-radius: 5px; }
+.game-node-option.selected { border-color: #88b7d5; background: #28394a; }
+.game-node-option:disabled { opacity: .5; cursor: not-allowed; }
+.game-node-option small, .game-nodes-admin small { display: block; color: #a8b3bf; margin-top: 4px; }
+.latency-note { color: #a8b3bf; font-size: .75rem; }
+.ping-good, .node-online { color: #80dda0; }
+.ping-medium, .node-full { color: #f1d071; }
+.ping-bad, .node-error { color: #ff9292; }
+.ping-terrible { background: #080b0f; color: #f3f4f6; padding: 2px 5px; border: 1px solid #75808d; border-radius: 4px; }
+.ping-unknown, .node-offline { color: #a8b3bf; }
+.game-nodes-admin { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 12px; }
+.game-nodes-admin article { border: 1px solid #43505e; background: #17202a; border-radius: 8px; padding: 14px; overflow-wrap: anywhere; }
+.node-state { float: right; font-size: .75rem; }

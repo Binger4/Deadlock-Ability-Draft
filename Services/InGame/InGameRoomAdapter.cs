@@ -390,6 +390,7 @@ public sealed partial class InGameRoomAdapter(DraftRoomService rooms, ServerDead
         var id = Guid.NewGuid().ToString("N");
         results[id] = new(1, id, room.Code, room.CompletedUtc ?? DateTime.UtcNow, DateTime.UtcNow, players)
         {
+            GameNodeId = GameNodeCoordinator.NormalizeNodeId(room.GameNodeId),
             Spectators = room.Clients.Where(c => c.Team == DeadlockTeam.Spectator && c.SteamId64 is not null)
                 .Select(c => new DraftSpectator(Opaque(room.Code, c.PlayerId), c.SteamId64!, c.DisplayName)).ToArray(),
             Source = room.Source, DraftMode = room.Config.DraftMode.ToString(), BotsEnabled = room.Config.AllowEmptySlotsAsBots,

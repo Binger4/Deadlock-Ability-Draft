@@ -177,6 +177,16 @@ public sealed partial class AbilityDraftPlugin : DeadworksPluginBase
         try
         {
             var command = PanoramaCommandCodec.Decode(e.ArgAt(0));
+            if (command.Operation == "leaveServer" && IsDraftHub)
+            {
+                ExitToMenu(session);
+                return; // OnClientDisconnect handles backend notification.
+            }
+            if (workerResult is not null)
+            {
+                if (command.Operation == "abandon") { RecordLocalAbandon(steam); ExitToMenu(session); }
+                return; // Match workers never call website/room APIs, including native draft chat.
+            }
             if (session.Busy)
             {
                 if (useWebsite && command.Operation == "chat" && command.Key is not null)
@@ -192,15 +202,6 @@ public sealed partial class AbilityDraftPlugin : DeadworksPluginBase
                     try { error = (await backend.Command(steam, command, stop.Token)).Error; }
                     catch (Exception ex) { error = ex is InvalidOperationException ? ex.Message : "Chat connection failed. Try again."; }
                     return () => ReplyNativeChat(session, command, error);
-                });
-                return;
-            }
-            if (command.Operation == "leaveServer" && IsDraftHub)
-            {
-                Run(steam, session, async () =>
-                {
-                    await backend.Disconnect(steam, stop.Token);
-                    return () => ExitToMenu(session);
                 });
                 return;
             }
@@ -502,6 +503,7 @@ public sealed partial class AbilityDraftPlugin : DeadworksPluginBase
     }
     public override void OnClientDisconnect(ClientDisconnectedEvent args)
     {
+        abilityUndo.RemovePlayer(args.Slot);
         inactivity.Remove(args.Slot); lastInputButtons.Remove(args.Slot);
         if (workerResult is not null) matchLifetime.Observe(DateTime.UtcNow, ConnectedMatchPlayers(args.Slot));
         itemPurchases.Remove(args.Slot);
@@ -530,6 +532,7 @@ public sealed partial class AbilityDraftPlugin : DeadworksPluginBase
     }
     public override void OnStartupServer()
     {
+        abilityUndo.Clear();
         itemPurchases.Clear();
         inactivity.Clear(); lastInputButtons.Clear(); nextInactivityCheck = 0; matchLifetime = new();
         shopClients.Clear();
@@ -659,7 +662,7 @@ public sealed partial class AbilityDraftPlugin : DeadworksPluginBase
         preparationArea.Release();
         matchReleased = true;
         Log("Releasing local pregame hold for " + preparedResult);
-        GameRules.SetGameStartTime(GlobalVars.CurTime);
+        GameRules.SetGameStartTime(NativeGameTime.Now);
         GameRules.ChangeGameState(EGameState.GameInProgress);
         if (GameRules.GameState != EGameState.GameInProgress)
         {

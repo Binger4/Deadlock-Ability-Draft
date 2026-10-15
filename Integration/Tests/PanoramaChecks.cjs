@@ -148,3 +148,18 @@ siteState.itemPurchase = JSON.stringify({id:'c'.repeat(32),item:'upgrade_echo_sh
 siteShell.render(); assert.equal(linkEvents.length,shopStart+2);
 siteShell.onDestroy(); siteShell.init(shellPanel); assert.equal(linkEvents.length,shopStart+2);
 console.log('PASS: native purchases dispatch once, reject command injection and do not replay after panel recreation');
+
+siteShell.onDestroy();
+siteState.draftHub = '1'; siteState.screen = 'connecting'; siteState.websiteUrl = '';
+siteShell.init(shellPanel);
+const exitStart = linkEvents.length;
+const originalSend = shellPanel.send;
+shellPanel.send = () => { throw new Error('Backend/UI command transport unavailable'); };
+shellClicks.CloseSite();
+assert.deepEqual(linkEvents.slice(exitStart), [['CitadelConCommand', 'disconnect']]);
+assert.equal(website.acceptsInput, false);
+siteState.disconnect = '1'; siteShell.render();
+assert.equal(linkEvents.length, exitStart + 1);
+shellPanel.send = originalSend;
+siteShell.onDestroy();
+console.log('PASS: Leave Server disconnects from a connecting hub without backend or command transport and cannot replay');

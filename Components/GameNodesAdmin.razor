@@ -1,0 +1,31 @@
+@implements IDisposable
+@using AbilityDraft.Contracts
+@inject abilitydraft.Services.InGame.GameNodeCoordinator Coordinator
+
+<section class="form-panel admin-wide">
+    <h2>Game Nodes</h2>
+    <div class="game-nodes-admin">
+        @foreach (var item in Nodes)
+        {
+            <article>
+                <strong>@item.Node.Name</strong>
+                <span class="node-state node-@item.Node.Status.ToLowerInvariant()">@item.Node.Status.ToUpperInvariant()</span>
+                <p>@item.Node.ActiveMatches / @item.Node.MaxMatches matches · @item.Node.FreeSlots free</p>
+                <small>ID: @item.Node.Id · @item.Node.Region · @item.PublicHost</small>
+                <small>Version: @item.Version · Connected: @Format(item.ConnectedSince)</small>
+                <small>Last heartbeat: @Format(item.LastHeartbeat)</small>
+                @if (item.Error is not null) { <p class="message">@item.Error</p> }
+                @if (item.MatchIds.Length > 0)
+                { <details><summary>Assigned matches (@item.MatchIds.Length)</summary>@foreach (var id in item.MatchIds) { <small><code>@id</code></small> }</details> }
+            </article>
+        }
+    </div>
+</section>
+@code {
+    private GameNodeAdminView[] Nodes = [];
+    private bool Disposed;
+    protected override void OnInitialized() { Nodes = Coordinator.AdminNodes(); Coordinator.Changed += Refresh; }
+    private void Refresh() => _ = InvokeAsync(() => { if (!Disposed) { Nodes = Coordinator.AdminNodes(); StateHasChanged(); } });
+    private static string Format(DateTime? time) => time?.ToString("yyyy-MM-dd HH:mm:ss 'UTC'") ?? "—";
+    public void Dispose() { Disposed = true; Coordinator.Changed -= Refresh; }
+}

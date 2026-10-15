@@ -1,8 +1,10 @@
 # Windows VPS hosting
 
-Ability Draft uses one ASP.NET backend, two persistent lobby servers and a pool of match servers on the same Windows host. The website owns rooms and drafting; Deadworks applies each completed draft in a separate match. See [RUNNING](RUNNING.md) for local setup and player flows.
+Ability Draft uses one ASP.NET backend and two persistent lobby servers on MAIN, with a local match pool and optional Remote Game Nodes. See [GAME-NODES.md](GAME-NODES.md) for distributed hosting, server selection and remote installation. The website owns rooms and drafting; Deadworks applies each completed draft in a separate match. See [RUNNING](RUNNING.md) for local setup and player flows.
 
-**Verification status — October 4, 2026:** Deadlock 6745 with Deadworks 0.5.3 starts both hubs and accepts a real player in a separate match. Chat persistence, AFK detection and empty-match cleanup have automated coverage. The native test also kicked its idle player after five minutes and closed the empty worker two minutes later. Rejoining during that grace period and Internet multiplayer still need live validation. **Lane departure remains unresolved:** a real player attaches for the intro, then falls into base instead of travelling to the lane; bots travelled correctly in the isolated test. Treat this as a test installation, not a fully verified gameplay release.
+The instructions below are sufficient for a single-host installation. To add remote match hosting later, follow the [optional rollout steps](GAME-NODES.md#optional-deployment) and install the [standalone Game Node Agent](https://github.com/Binger4/Deadlock-Ability-Draft-Game-Node#install-on-windows) on each extra machine. Draft hubs remain on MAIN. The server selector is available only through the game client, and match counts/capacity are visible only in admin.
+
+Start with [Installation from a fresh checkout](INSTALLATION.md) on the build machine. It explains the Visual C++ runtime, .NET, PowerShell, CSDK, Source 2 Viewer CLI, the Deadworks release/source in `Tools`, and the compiled client bridge. This guide then configures a public deployment; it does not require another developer's local settings or files.
 
 ## Server processes
 
@@ -13,17 +15,20 @@ Ability Draft uses one ASP.NET backend, two persistent lobby servers and a pool 
 | Public-queue hub | Starts with the website; restarts after failure | 27068 |
 | Match workers | Starts on START MATCH; stops on completion, all players abandoning, or two minutes empty | 27069 onward |
 
-`Start Ability Draft Server.cmd` is a local development shortcut. Production hosting starts the published website directly. Its background services launch Deadworks; they do not execute the CMD file. Hosting requires all three configuration flags: `InGame.Enabled`, `InGame.DraftServers.Enabled` and `InGame.MatchWorkers.Enabled`. Publishing alone does not enable them.
+`Start Ability Draft Server.cmd` is a local development shortcut. Production hosting starts the published website directly. Its background services launch Deadworks; they do not execute the CMD file. Local hosting requires all three configuration flags: `InGame.Enabled`, `InGame.DraftServers.Enabled` and `InGame.MatchWorkers.Enabled`. With [Remote Game Nodes](GAME-NODES.md), the local match pool can be disabled while draft hubs remain on MAIN; Public Queue still uses MAIN's local pool. Publishing alone does not enable hosting.
 
-Run exactly one backend. Rooms are held in memory, and its allocator owns the game ports and private state directories. Restarting it clears rooms and ends its servers. An active match cannot be reconstructed after a game-server crash. Multiple backend replicas and remote worker hosts are not supported.
+Run exactly one MAIN backend; multiple backend replicas are not supported. Rooms are held in memory, so restarting MAIN clears rooms and participant links. Graceful shutdown stops MAIN's local servers. Remote matches can continue while MAIN restarts, and its persisted assignments reconcile when agents reconnect; this does not restore website rooms. Each host owns its game ports and private state directories. Recovery can reattach to an identified surviving match process, but cannot reconstruct gameplay after that process has exited. See [persistence and failure behavior](GAME-NODES.md#protocol-persistence-and-failures) before operating remote hosts.
 
 ## Required downloads and files
 
 | Component | Preparation |
 | --- | --- |
+| Visual C++ runtime | Install **[Visual C++ Redistributable 2015–2022 x64](https://aka.ms/vs/17/release/vc_redist.x64.exe)** on the build machine and game hosts. |
 | .NET | Windows x64 [.NET 10 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/10.0). Verify `Microsoft.NETCore.App` and `Microsoft.AspNetCore.App` 10.x with `dotnet --list-runtimes`. |
+| PowerShell | [PowerShell 7](https://learn.microsoft.com/en-us/powershell/scripting/install/install-powershell-on-windows) for setup commands. |
+| Build tools | Prepare [CSDK, Source 2 Viewer CLI, Deadworks release/source and bootstrap](INSTALLATION.md#build-tools) on the build PC. These folders are excluded from Git and are not downloaded by publishing. |
 | Deadlock | A separate server installation, downloaded using [Windows SteamCMD](https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip), app ID `1422450`. |
-| Deadworks | Extract **v0.5.3** from the [official release](https://github.com/Deadworks-net/deadworks/releases/tag/v0.5.3) into the Deadlock installation. Both local hubs were checked with Deadlock 6745; retest gameplay after updates. |
+| Deadworks | Extract **v0.5.6** from the [official release](https://github.com/Deadworks-net/deadworks/releases/tag/v0.5.6) into the Deadlock installation. Install the entire release, including managed DLLs and `deadworks_mem.jsonc`; retest gameplay after updates. |
 | Plugin | `AbilityDraft.Deadworks.dll`, `AbilityDraft.Runtime.dll` and `AbilityDraft.Contracts.dll`, built from this repository. |
 | Website | Complete publish output, production configuration, catalogue, icons, localisation and existing packing tools. `Tools` is excluded from automatic publishing. |
 | Players | Static Ability Draft VPK built with public addresses, plus the accompanying Deadworks bootstrap source and license notices. |
@@ -43,7 +48,7 @@ All workers share one game installation. Keep it separate from the website's pac
 
 ## Backend configuration
 
-Merge the following section into the deployed private `appsettings.Production.json`. Preserve existing website, authentication, data and packing settings. Ensure the application runs in the Production environment.
+For a new deployment, copy `appsettings.example.json` to a private `appsettings.Production.json`, choose a strong admin password, and merge the following section into it. Preserve existing website, authentication, data and packing settings on an established deployment. Ensure the application runs in the Production environment.
 
 The example uses a backend on port 5050. Set `BackendUrl` to the existing website listener: a site already listening on port 80 uses `http://127.0.0.1:80/`. Do not change a working website binding just to match the example.
 
@@ -95,7 +100,7 @@ Create the private state directories and grant the website's execution account w
 
 ## Compile and update on the VPS
 
-This update needs the website (including `wwwroot/ingame-activity.js`), all three plugin DLLs, and the player VPK. Build the player VPK with production addresses **before publishing** using [Build the player VPK](#build-the-player-vpk). Publishing copies the existing VPK if present; it does not rebuild it or replace localhost addresses.
+The installation needs the published website, all three plugin DLLs, and the player VPK. Build the player VPK with production addresses **before publishing** using [Build the player VPK](#build-the-player-vpk). Publishing copies the existing VPK if present; it does not rebuild it or replace localhost addresses.
 
 The website and plugin are separate build targets. Run from a source checkout containing the `Integration` projects:
 
@@ -113,7 +118,15 @@ If `publish` is the live deployment folder, use a separate staging directory:
 dotnet publish abilitydraft.csproj -c Release -o C:/AbilityDraftRelease
 ```
 
-Deploy during a maintenance window:
+For the first installation, copy the full publish output to a directory such as `C:\AbilityDraft\publish`, place your private `appsettings.Production.json` there, and install the plugin DLLs below into the dedicated Deadlock installation. `Tools` is not published: if website VPK export is enabled, copy its complete CSDK and DeadPacker directories to the host and set their deployed paths in the private config; otherwise set `DeadPacker.Enabled=false`. Package compilation tools such as Source 2 Viewer can stay on the build PC. Distribute the bootstrap source/notices with the player VPK. Start from the publish directory with:
+
+```powershell
+dotnet ./abilitydraft.dll --environment Production --urls http://127.0.0.1:5050
+```
+
+Sign in to `/admin` with your configured credentials and let the initial hero/ability catalogue download finish; use **Verify** if needed. Complete [networking](#cloudflare-and-ports), [startup management](#automatic-startup-and-recovery) and [deployment checks](#check-deployment) before admitting players.
+
+For subsequent updates, deploy during a maintenance window:
 
 1. Finish active drafts and matches. Back up the deployed application, private configuration, `App_Data`, production data and packing tools. Preserve `Data/Stats/completed-drafts.json` and `Data/site-access.json`, or their configured locations.
 2. Stop the website through its supervisor and verify its game processes have stopped. A forced termination can leave children alive until the owner heartbeat expires. Do not start a second backend while old ports remain occupied.
@@ -156,9 +169,9 @@ Capture website stdout/stderr through the supervisor or a logging sink; Task Sch
 
 ### Build the player VPK
 
-Build on a development PC with Windows PowerShell 5.1 or PowerShell 7, the .NET SDK, the configured Source 2 compiler, Source2Viewer CLI and pinned Deadworks bootstrap files. These ignored `Tools` and `Integration/local` dependencies must be prepared on a fresh checkout; publishing does not fetch them. A prepared build PC can produce the package without installing the addon compiler on the VPS.
+Prepare the build PC using [Build tools](INSTALLATION.md#build-tools), including the explicit [Source 2 Viewer CLI download](INSTALLATION.md#source-2-viewer-cli) and [client bridge preparation](INSTALLATION.md#official-client-bridge). Run the following in PowerShell 7. You can build the player package on another Windows PC and copy the output to the VPS.
 
-For a local build, double-click `Build Ability Draft Mod.cmd` in the repository root. It reads `GameRoot` from `Integration/local/settings.json` and keeps the console open after success or failure. The output is `Integration/dist/ability_draft_base.vpk`. For Internet players, supply the public website and server addresses explicitly:
+The output is `Integration/dist/ability_draft_base.vpk`. For Internet players, supply the public website and server addresses explicitly:
 
 ```powershell
 pwsh -NoProfile -File .\Integration\Build-BaseAddon.ps1 `
@@ -170,13 +183,15 @@ pwsh -NoProfile -File .\Integration\Build-BaseAddon.ps1 `
 
 Distribute `Integration/dist/ability_draft_base.vpk` with its `deadworks-bootstrap-source` notices. Rebuild when UI, icons, game compatibility or public addresses change. A completed draft does not need a new VPK.
 
-The build defaults to `Tools/DeadworksRelease/source-v0.5.3/Deadworks-net-deadworks-06d468c`. If the matching official source is elsewhere, pass `-DeadworksSourceDirectory '<directory containing client-bootstrap>'`. Keep the pinned bootstrap and its checksum manifest consistent with that source.
+The build defaults to `Tools/DeadworksRelease/source-v0.5.6/Deadworks-net-deadworks-9d67333`. If the matching official source is elsewhere, pass `-DeadworksSourceDirectory '<directory containing client-bootstrap>'`. Keep the pinned bootstrap and its checksum manifest consistent with that source.
 
-Install the complete package under `game/citadel/addons` using an available `pakNN_dir.vpk` filename. Replace obsolete copies of this mod and preserve unrelated mods. Enable `Game citadel/addons` in `gameinfo.gi` SearchPaths while retaining stock entries and explicit `Mod citadel` and `Write citadel` roots. Use the tested `-insecure` launch profile. Do not distribute a machine-specific replacement for the entire `gameinfo.gi`.
+Give players the [player installation instructions](INSTALLATION.md#player-installation): install the complete package under `game/citadel/addons`, retain existing game paths and other mods, and launch with `-insecure`. Do not distribute a machine-specific replacement for the entire `gameinfo.gi`.
 
 The VPK includes the Deadworks UI bridge. A menu-only or localhost package is unsuitable for Internet players. Players do not need SteamCMD, server DLLs, .NET or a custom launcher. Use the website's public HTTPS origin for Internet builds. Loopback HTTP remains suitable for server-to-backend API calls.
 
 ### Cloudflare and ports
+
+Adding a remote machine? Follow the [Game Node deployment walkthrough](https://github.com/Binger4/Deadlock-Ability-Draft-Game-Node/blob/main/DEPLOYMENT.md) for public/LAN IPs, Cloudflare DNS, matching agent configuration and remote port forwarding. The rules below describe MAIN's own hubs and local workers.
 
 Keep the website on its existing HTTPS hostname. Add a separate game hostname, such as `games.example.com`, with an **A record pointing to the game host and DNS only (grey cloud)**. Cloudflare's ordinary HTTP proxy does not carry game traffic on these ports. See [Cloudflare's port support](https://developers.cloudflare.com/fundamentals/reference/network-ports/).
 
@@ -188,7 +203,7 @@ Cloudflare Tunnel can serve the website over public HTTPS while ASP.NET listens 
 2. In Cloudflare's dashboard, open **Networking → Tunnels**, create a tunnel, and select Windows. Install `cloudflared` on the VPS using the dashboard's instructions, then run its service-install command in an administrator terminal. Treat the supplied tunnel token as a secret.
 3. Add a **Published application** route for the website hostname, with service URL `http://127.0.0.1:5050` (or the website's actual local port). Run the connector on the same machine as ASP.NET. Wait for the tunnel to report healthy and the hostname's SSL certificate to become active.
 4. Check the HTTPS address in a browser. Set `InGame:DraftServers:WebsiteUrl` to that origin and rebuild the player VPK with the same `-WebsiteUrl`. Keep `BackendUrl` on loopback HTTP.
-5. Allow WebSockets and bypass caching for dynamic draft pages, `/_blazor`, `/draft-room-hub`, `/presets/` and `/api/ingame/`. Do not put an interactive Cloudflare Access login in front of the in-game draft. Verify create, join, chat and reconnect through the public hostname.
+5. Allow WebSockets and bypass caching for dynamic draft pages, `/_blazor`, `/draft-room-hub`, `/presets/`, `/api/ingame/`, `/api/game-nodes/` and `/game-nodes/ping`. Do not put an interactive Cloudflare Access login in front of the in-game draft or the node control endpoint. The agent authenticates with its own per-node secret. Keep `/api/game-nodes/v1/connect` free of browser challenges and preserve the forwarded HTTPS scheme from the trusted local connector. Verify create, join, chat and reconnect through the public hostname.
 
 See the [Cloudflare Tunnel setup guide](https://developers.cloudflare.com/tunnel/get-started/) for the current dashboard and Windows service commands. The tunnel service and website must both run after a VPS reboot. Publishing still uses `dotnet publish -c Release -o publish`.
 
@@ -207,13 +222,13 @@ New-NetFirewallRule -DisplayName 'Ability Draft TCP' -Direction Inbound `
 
 Add matching provider firewall rules, or port forwarding if the host is behind NAT. Extend the range when increasing worker capacity. Preserve existing website and management rules. Do not expose RCON or private state files. A DNS-only game record exposes the host address; game traffic protection must be provided at the host/network layer.
 
-Preserve HTTPS and WebSocket support for the website's Blazor connection. Exclude dynamic room pages, `/presets/`, `/_blazor` and `/api/ingame/` from any cache-everything rule. Keep plugin API calls on loopback when all processes share a host. Do not switch an HTTP origin to Cloudflare Full (strict) without first configuring a valid HTTPS origin.
+Preserve HTTPS and WebSocket support for the website's Blazor connection. Exclude dynamic room pages, `/presets/`, `/_blazor`, `/api/ingame/`, `/api/game-nodes/` and `/game-nodes/ping` from any cache-everything rule. Keep plugin API calls on loopback when all processes share a host. Do not switch an HTTP origin to Cloudflare Full (strict) without first configuring a valid HTTPS origin.
 
 Players enter the public or custom hub through the menu buttons. After drafting, the backend allocates a worker and supplies its address privately to eligible players and spectators. Both the public website and allocated game ports must be reachable from players' networks.
 
 ## Capacity and 30–50 simultaneous matches
 
-**The current implementation does not support a 30–50-worker configuration.** `MatchWorkerCoordinator` accepts `MaxWorkers` from 1 to 16. This is a code limit, not a tested performance guarantee.
+Each local or remote pool accepts `MaxWorkers` from 1 to 16. A single pool cannot be configured for 30–50 workers. Additional capacity can be spread across [optional Game Nodes](GAME-NODES.md), subject to the resources of each host and MAIN. Keep one MAIN coordinator; multiple website replicas do not share an in-memory room store.
 
 The integration API permits 240 requests per 10 seconds per source IP. Plugins on one machine share that allowance when calling over loopback. Polling and player commands can exhaust it before the worker limit is reached. Larger deployments require an authenticated rate-limit design, reduced or batched polling, and load testing of the backend and both hubs. Removing the worker cap alone is insufficient.
 
@@ -222,21 +237,23 @@ The integration API permits 240 requests per 10 seconds per source IP. Plugins o
 | 1 | 27069 | 3 |
 | 2 | 27069–27070 | 4 |
 | 16, current code ceiling | 27069–27084 | 18 |
-| 30, requires implementation changes | 27069–27098 | 32 |
-| 50, requires implementation changes | 27069–27118 | 52 |
 
 Size the host from measured full-match CPU, memory and network use, including large fights, spectators, simultaneous map loading and website VPK packing. Reserve resources for Windows, the website and both hubs, plus at least 25% operating headroom. Fifty full matches represent 600 playing clients before queued players and observers. A small website VPS is not suitable for this capacity.
 
 Increase the tested pool gradually. Monitor server frame time, RAM/commit use, startup duration, bandwidth, API 429 responses and disk growth. Reuse one game installation and launch workers on demand instead of keeping empty maps alive.
 
-A public endpoint accepts players from different countries, but latency depends on the host's region. Regional hosting requires a remote worker allocator and region selection, which are not implemented. Starting multiple backend copies does not create a shared matchmaking pool.
+A public endpoint accepts players from different countries, but latency depends on the host's region. [Game Nodes](GAME-NODES.md) provide optional regional selection for in-game Custom Lobbies. Public Queue stays on MAIN.
+
+## Known limitations
+
+The current dependency pin is Deadworks 0.5.6 with client bootstrap 7 for Deadlock build 6763. Game updates can require a new compatible release and rebuilt player package. Player lane departure after the intro has an unresolved issue: the player may fall into base instead of travelling to the lane. Follow the deployment checks below before opening a server to players; successful process startup alone does not confirm the complete gameplay flow.
 
 ## Check deployment
 
 1. Open the site in its admin panel if its access setting is closed. Verify ordinary website drafting and file generation.
 2. Privately request `GET /api/ingame/v1/hosting` with `Authorization: Bearer <ServerKey>`. Both hubs should report running and ready. This is an administrator endpoint, not a public player link.
 3. Connect from another network with the production VPK. Test Public Queue → Cancel Search and Custom Lobby → Create/Join. A TCP port check alone does not verify gameplay connectivity.
-4. Complete a draft and start a match. Verify transfer, both teams, four abilities, preparation, lane swaps, actual travel to the lane, spectating and reconnect. A successful lane-assignment log alone does not verify travel; see the unresolved lane-departure issue above.
+4. Complete a draft and start a match. Verify transfer, both teams, four abilities, preparation, lane swaps, actual travel to the lane, spectating and reconnect. A successful lane-assignment log alone does not verify travel; see [Known limitations](#known-limitations).
 5. On a host with measured spare capacity, enable a second worker and test two independent matches. Leaving or abandoning one must not stop the other.
 6. During maintenance testing, stop a hub and verify its restart. Test website startup after a host reboot before relying on unattended operation.
 
@@ -247,7 +264,7 @@ Also check the new chat and lifecycle behavior:
 - When all human players leave or are kicked, reconnect within two minutes and verify cleanup is cancelled. Leave again and let the full two minutes expire: the worker must stop, free capacity and reject rejoining the old match.
 - Have every remaining player abandon during the grace period: that match stops immediately. Bots and spectators must not keep it alive.
 
-These timers are currently fixed in code. Closing a match stops its worker and permanently closes admission; private diagnostic files are retained rather than erased.
+These timers are currently fixed in code. Closing a match stops its worker and permanently closes admission. Completed result/catalog/admission/status files are cleaned up; local logs remain for diagnosis.
 
 ## Logs and maintenance
 
@@ -263,7 +280,7 @@ matches/<worker-id>/server.err.log
 matches/<worker-id>/status.json
 ```
 
-Configure private log retention and backups; do not remove active worker files. Website hosting, queue and lifecycle events use the ASP.NET logger. Back up production configuration, DataProtection keys and draft statistics. Schedule game, Deadworks and plugin updates outside active matches, then repeat the connection and runtime tests. Internet play and full multiplayer capacity have not yet been validated by the local tests.
+Configure private log retention and backups; do not remove active worker files. Website hosting, queue and lifecycle events use the ASP.NET logger. Back up production configuration, DataProtection keys and draft statistics. Schedule game, Deadworks and plugin updates outside active matches, then repeat [deployment checks](#check-deployment) on the actual host and network.
 
 ## Updating after a game patch
 
@@ -272,12 +289,12 @@ Update these parts together during maintenance:
 Stop the backend and close Deadlock before replacing files. This ends local matches and clears in-memory draft rooms. Use `Integration/Stop-Local.ps1` for the local setup; do not stop unrelated game servers.
 
 1. Update the dedicated Deadlock installation and the clients. Record the server version from `game/citadel/steam.inf`.
-2. Check the [official releases](https://github.com/Deadworks-net/deadworks/releases) directly and install the compatible release in full, including `deadworks.exe`, the managed DLLs and `game/citadel/cfg/deadworks_mem.jsonc`. Replacing only the executable leaves old engine signatures behind. On October 3, v0.5.3 restored hub startup on Deadlock 6745 after v0.5.1 failed on build 6742 with `CCitadelGameRules::BuildGameSessionManifest` missing. A newer game build may require another release; reinstalling the same incompatible version will not fix that.
+2. Check the [official releases](https://github.com/Deadworks-net/deadworks/releases) directly and install the compatible release in full, including `deadworks.exe`, the managed DLLs and `game/citadel/cfg/deadworks_mem.jsonc`. Replacing only the executable leaves old engine signatures behind. A newer game build may require another release; reinstalling the same incompatible version will not fix that.
 3. Rebuild the Ability Draft plugin against that release's `game/bin/win64/managed` directory, then install all three plugin DLLs as described above.
-4. If the official client bootstrap changed, update its pinned VPK and checksum manifest on the build PC. Keep its matching source and licence notices. Rebuild the player VPK from the current game's layouts; pass `-DeadworksSourceDirectory` to `Build-BaseAddon.ps1` if the matching source is outside the default path listed above. The October update uses bootstrap version 7. Distribute the rebuilt player package too.
+4. If the official client bootstrap changed, update its pinned VPK and checksum manifest on the build PC. Keep its matching source and licence notices. Rebuild the player VPK from the current game's layouts; pass `-DeadworksSourceDirectory` to `Build-BaseAddon.ps1` if the matching source is outside the default path listed above. The current pin uses bootstrap version 7. Distribute the rebuilt player package too.
 5. Check the website's hero/ability data update in the admin panel. Start the website, verify both hubs, then test a match with both teams, lane swaps, preparation, abilities and spectators. Shop purchases and embedded-page keyboard input require a client test.
 
-For the prepared local development checkout, extract the official v0.5.3 ZIP into `Tools/DeadworksRelease/v0.5.3` and its matching source into a separate directory. Then run these commands in PowerShell 7 from the repository root (replace the source path with the extracted directory containing `client-bootstrap`):
+For local hosting, prepare the release, source and bridge using [the installation guide](INSTALLATION.md#deadworks-release-and-matching-source), then run these commands in PowerShell 7 from the repository root (replace the source path with the extracted directory containing `client-bootstrap`):
 
 ```powershell
 .\Integration\Stop-Local.ps1
@@ -285,20 +302,24 @@ dotnet build .\abilitydraft.csproj
 dotnet build .\Integration\Deadworks\AbilityDraft.Deadworks.csproj
 .\Integration\Build-BaseAddon.ps1 -DeadworksSourceDirectory '<matching Deadworks source directory>'
 .\Integration\Install-LocalAddon.ps1
+.\Integration\Test-LocalClient.ps1
 .\Integration\Start-Local.ps1
 ```
 
-The current plugin build and installer default to v0.5.3. For a later release, pass `-p:DeadworksManagedDir=<absolute release path>/game/bin/win64/managed` to `dotnet build` and `-DeadworksReleaseDirectory <absolute release path>` to the installer. Do not run the installer while the game or servers are open. It backs up each replaced file and reports the backup directory. `Restore-LocalInstall.ps1` can restore that installation; it does not roll back Steam's game update.
+The current plugin build and installer default to v0.5.6. For a later release, pass `-p:DeadworksManagedDir=<absolute release path>/game/bin/win64/managed` to `dotnet build` and `-DeadworksReleaseDirectory <absolute release path>` to the installer. Do not run the installer while the game or servers are open. It backs up each replaced file and reports the backup directory. `Restore-LocalInstall.ps1` can restore that installation; it does not roll back Steam's game update.
+
+If startup reports **Ability Draft addon mounting is disabled**, the game update or a mod manager removed `Game citadel/addons` from `game/citadel/gameinfo.gi`. With Deadlock and the local servers closed, rerun `Integration/Install-LocalAddon.ps1` and then `Integration/Test-LocalClient.ps1`. The installer restores that search path while preserving current game paths and unrelated addons. Rebuilding the package alone does not install it, and restoring an old complete `gameinfo.gi` could discard changes from the game update. A passing client check verifies the mounted package; both hubs must also become ready to verify the native Deadworks installation.
 
 Distinguish these failure checks:
 
 - **Current VPK not found / not mounted:** startup has not reached Deadworks yet. A rebuild changes the expected VPK hash, so even an older complete package will fail this check. Install the newly built package, retaining its existing `pakNN_dir.vpk` name. If Steam or a mod manager disabled `Game citadel/addons` in `gameinfo.gi`, the installer restores it. Preserve other mods.
+- **An older Ability Draft VPK is also mounted:** run the installer with Deadlock and the servers closed. It updates every detected Ability Draft package while preserving unrelated mods.
 - **Failed to find signatures / unsupported Deadlock build:** Deadworks started but is incompatible with the game's native code. Install the compatible official release with all its files and rebuild the plugin. If none exists yet, wait for an upstream compatibility update; do not guess offsets or disable the compatibility guard.
 - **Native drafted ability training unavailable:** Ability Draft's own Windows x64 training bridge no longer matches the server. This is separate from Deadworks' signatures. Update the bridge for the new game build; it deliberately refuses an ambiguous signature, a schema mismatch or modified code. Reinstalling Deadworks alone cannot repair this guard. The successful worker log says `Native drafted ability training bridge ready`.
 
 Successful startup must report `running=True` and `ready=True` for **both** custom and public hubs. A website that opens successfully is not sufficient. Read `Integration/local/drafting/custom/server.log` and `public/server.log` for engine errors; `backend.log` and `backend.err.log` cover website startup. A separate match worker must also load and accept a client before gameplay is considered tested.
 
-After replacing the player VPK, fully restart Deadlock. In a fresh drafted match, verify ALT+number, TAB+number, and TAB+left-click on a skill with an available unlock or enough ability points. Check that the point is spent once and the learned upgrade remains filled after releasing and reopening TAB. The mouse overlay must respond to the native `gScoreboardOpen` state as well as detail view, and must disappear during normal casting. `node Integration/Tests/AbilityUpgradeHudChecks.cjs` checks slot dispatch, affordability, tier ordering and teardown; an in-game mouse test is still required.
+After replacing the player VPK, fully restart Deadlock. In a fresh drafted match, verify ALT+number, TAB+number, and TAB+left-click on a skill with an available unlock or enough ability points. Check that the point is spent once and the learned upgrade remains filled after releasing and reopening TAB. The overlay should disappear during normal casting.
 
 An `Invalid drafting server configuration` error occurs before Deadworks starts. Check `InGame:DraftServers:StateDirectory`: it must be an absolute private path. The custom and public ports must also be valid and distinct. Match workers need their own absolute `StateDirectory` and installed `GameRoot`; the integration needs a private `ServerKey`. The local shortcut supplies these values from `Integration/local/settings.json`. A directly started or published website reads its own configuration instead.
 

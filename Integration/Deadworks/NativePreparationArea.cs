@@ -31,14 +31,14 @@ public sealed class NativePreparationArea(DeadworksRuntime game, Action<string> 
         if (Environment.GetEnvironmentVariable("ABILITYDRAFT_TRACE_MATCH_START") == "1")
             log($"Preparation spawn slot {pawn.Controller?.Slot}: native={pawn.Position}, base={spawn}");
         pawn.Teleport(position: spawn, velocity: Vector3.Zero);
-        held[steamId] = new(spawn, GlobalVars.CurTime);
+        held[steamId] = new(spawn, NativeGameTime.Now);
         log($"Preparation base spawn selected for slot {pawn.Controller?.Slot}, team {team}");
     }
 
     public void Tick()
     {
-        if (held.Count == 0 || GlobalVars.CurTime < nextCheck) return;
-        nextCheck = GlobalVars.CurTime + 0.1f;
+        if (held.Count == 0 || NativeGameTime.Now < nextCheck) return;
+        nextCheck = NativeGameTime.Now + 0.1f;
         foreach (var player in Players.GetAll())
         {
             if (!held.TryGetValue(game.Identity(player), out var hold) || player.GetHeroPawn() is not { } pawn) continue;
@@ -49,7 +49,7 @@ public sealed class NativePreparationArea(DeadworksRuntime game, Action<string> 
                 hold.Confirmed = true;
                 continue;
             }
-            if (!hold.Confirmed && GlobalVars.CurTime - hold.Entered > 3)
+            if (!hold.Confirmed && NativeGameTime.Now - hold.Entered > 3)
                 throw new InvalidOperationException("Native friendly-base trigger did not confirm the preparation spawn.");
             pawn.Teleport(position: hold.LastSafe, velocity: Vector3.Zero);
             if (hold.Confirmed && !hold.Returned)

@@ -40,17 +40,17 @@ public sealed partial class AbilityDraftPlugin
     private void HoldTrooperWaves()
     {
         if (trooperSpawning is null) return;
-        if (matchReleased && GameRules.GameClock >= FirstWaveSeconds)
+        if (matchReleased && NativeGameTime.MatchClock >= FirstWaveSeconds)
         {
             if (!trooperWavesReleased) ReleaseTrooperWaves();
-            if (workerResult is not null && !firstWaveLogged && GlobalVars.CurTime >= nextWaveAudit)
+            if (workerResult is not null && !firstWaveLogged && NativeGameTime.Now >= nextWaveAudit)
             {
-                nextWaveAudit = GlobalVars.CurTime + 1;
+                nextWaveAudit = NativeGameTime.Now + 1;
                 var alive = Entities.ByDesignerName("npc_trooper").Count(e => e.IsAlive && e.TeamNum is 2 or 3);
                 if (alive > 0)
                 {
                     firstWaveLogged = true;
-                    Log($"First active lane wave: {alive} troopers at match clock {GameRules.GameClock:F1}s");
+                    Log($"First active lane wave: {alive} troopers at match clock {NativeGameTime.MatchClock:F1}s");
                 }
             }
             return;
@@ -67,7 +67,7 @@ public sealed partial class AbilityDraftPlugin
         if (trooperSpawning is null) return;
         trooperWavesReleased = true;
         trooperSpawning.SetInt(originalTrooperSpawning);
-        Log($"Native trooper spawning restored to {originalTrooperSpawning} at match clock {GameRules.GameClock:F1}s");
+        Log($"Native trooper spawning restored to {originalTrooperSpawning} at match clock {NativeGameTime.MatchClock:F1}s");
     }
 
     private void BeginPatronIntro()
@@ -79,12 +79,12 @@ public sealed partial class AbilityDraftPlugin
             Server.ExecuteCommand("citadel_test_cinematic_intro");
             Log("Requested native Patron cinematic through the engine intro command");
         }
-        cinematicAuditAt = GlobalVars.CurTime + 0.5f;
+        cinematicAuditAt = NativeGameTime.Now + 0.5f;
     }
 
     private void AuditPatronIntro()
     {
-        if (cinematicAuditAt == 0 || GlobalVars.CurTime < cinematicAuditAt) return;
+        if (cinematicAuditAt == 0 || NativeGameTime.Now < cinematicAuditAt) return;
         cinematicAuditAt = 0;
         var count = Players.GetAll().Count(p => p.GetHeroPawn()?.ModifierProp?.HasModifierState(EModifierState.CinematicIntro) == true);
         Log(count > 0 ? $"Native Patron cinematic active for {count} player(s)" : "Native Patron cinematic was not confirmed; this game build needs intro testing.");

@@ -171,6 +171,8 @@ public sealed class DraftRoom
     public bool InGameManaged { get; set; }
     public bool IsPublicQueue { get; set; }
     public string Source => IsPublicQueue ? "public" : InGameManaged ? "custom" : "web";
+    // Hosting affinity is deliberately outside draft presets; missing legacy data means MAIN.
+    public string GameNodeId { get; set; } = "main";
     public string Code { get; init; } = string.Empty;
     public string Name { get; init; } = "Deadlock Ability Draft";
     public DateTime CreatedUtc { get; init; } = DateTime.UtcNow;

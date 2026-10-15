@@ -1,0 +1,103 @@
+@implements IAsyncDisposable
+@using AbilityDraft.Contracts
+@using abilitydraft.Services.InGame
+@inject GameNodeCoordinator Coordinator
+@inject IJSRuntime JS
+
+<div class="game-node-selector">
+    <span>Game server</span>
+    <details @ref="Picker">
+        <summary aria-label="Select game server">
+            <span>@(Nodes.FirstOrDefault(n => n.Id == Selected)?.Name ?? "No game servers available")</span>
+            <span class="@GameNodeSelection.PingClass(Ping(Selected))">@PingLabel(Selected) <span aria-hidden="true">▾</span></span>
+        </summary>
+        <div class="game-node-options" role="group" aria-label="Game servers">
+            @foreach (var node in Nodes)
+            {
+                <button type="button" class="game-node-option @(node.Id == Selected ? "selected" : "")"
+                        disabled="@(!node.Available)" aria-pressed="@(node.Id == Selected)" @onclick="() => Select(node.Id)">
+                    <span>@node.Name <small>@node.Region</small></span>
+                    @if (node.Available)
+                    { <span class="@GameNodeSelection.PingClass(Ping(node.Id))">@PingLabel(node.Id)</span> }
+                    else
+                    { <span>@node.Status.ToUpperInvariant()</span> }
+                </button>
+            }
+        </div>
+    </details>
+    @if (!string.IsNullOrEmpty(Notice)) { <small role="status">@Notice</small> }
+    <small class="latency-note">Browser latency estimate; game ping may differ.</small>
+</div>
+
+@code {
+    [Parameter] public EventCallback<string?> SelectedChanged { get; set; }
+    private GameNodeView[] Nodes = [];
+    private Dictionary<string, double?> Pings = new();
+    private Dictionary<string, string> Labels = new();
+    private string? Selected;
+    private bool Manual, Disposed;
+    private string Notice = "";
+    private ElementReference Picker;
+    private IJSObjectReference? Module;
+    private DotNetObjectReference<GameNodeSelector>? Reference;
+    private int? Probe;
+    public sealed record ProbeValue(double? Ms, string Status);
+    protected override void OnInitialized() { Nodes = Coordinator.Nodes(); Coordinator.Changed += Refresh; }
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        Module = await JS.InvokeAsync<IJSObjectReference>("import", "/game-node-latency.mjs");
+        if (Disposed) { await Module.DisposeAsync(); return; }
+        Reference = DotNetObjectReference.Create(this);
+        Probe = await Module.InvokeAsync<int>("start", Reference, ProbeTargets());
+        await Reconcile();
+    }
+    private void Refresh() => _ = InvokeAsync(async () =>
+    {
+        if (Disposed) return;
+        Nodes = Coordinator.Nodes();
+        if (Selected is not null && !Nodes.Any(n => n.Id == Selected && n.Available))
+        { Notice = "Your selected server became unavailable. An available server will be selected."; Manual = false; }
+        await Reconcile();
+        if (Module is not null && Probe is { } id) await Module.InvokeVoidAsync("update", id, ProbeTargets());
+        StateHasChanged();
+    });
+    private async Task Reconcile()
+    {
+        var choice = GameNodeSelection.Choose(Nodes, Pings, Selected, Manual);
+        if (choice != Selected) { Selected = choice; await SelectedChanged.InvokeAsync(choice); }
+    }
+    [JSInvokable] public async Task LatenciesUpdated(Dictionary<string, ProbeValue> values)
+    {
+        if (Disposed) return;
+        Pings = values.ToDictionary(p => p.Key, p => p.Value.Ms);
+        Labels = values.ToDictionary(p => p.Key, p => p.Value.Status);
+        await Reconcile(); StateHasChanged();
+    }
+    private async Task Select(string id)
+    {
+        if (!Nodes.Any(n => n.Id == id && n.Available)) return;
+        Selected = id; Manual = true; Notice = "";
+        await SelectedChanged.InvokeAsync(id);
+        if (Module is not null) await Module.InvokeVoidAsync("close", Picker);
+    }
+    private double? Ping(string? id) => id is null ? null : Pings.GetValueOrDefault(id);
+    // The game client's browser needs only probe destinations, never match counts/capacity.
+    private object[] ProbeTargets() => Nodes.Select(n => (object)new { n.Id, n.PublicProbeUrl }).ToArray();
+    private string PingLabel(string? id) => Ping(id) is { } ms ? $"{Math.Round(ms)} ms" :
+        id is not null && Labels.TryGetValue(id, out var label) ? label : "Measuring…";
+    public async ValueTask DisposeAsync()
+    {
+        Disposed = true; Coordinator.Changed -= Refresh;
+        try
+        {
+            if (Module is not null)
+            {
+                if (Probe is { } id) await Module.InvokeVoidAsync("stop", id);
+                await Module.DisposeAsync();
+            }
+        }
+        catch (JSDisconnectedException) { }
+        Reference?.Dispose();
+    }
+}

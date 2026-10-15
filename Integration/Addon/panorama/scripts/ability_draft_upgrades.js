@@ -14,6 +14,11 @@ var AbilityDraftUpgrades = (function () {
         // or decrement points optimistically on the client.
         $.DispatchEvent('CitadelConCommand', 'trainorupgradeability ' + binding.slot);
     }
+    function undo(binding) {
+        if (binding.state && binding.state.canUndo)
+            $.DispatchEvent('CitadelConCommand', 'ad_undo_ability ' + binding.slot);
+        return true;
+    }
     function bind(pips, icon, slot) {
         var saved = [];
         pips.Children().forEach(function (child) {
@@ -30,7 +35,7 @@ var AbilityDraftUpgrades = (function () {
             style(text, { horizontalAlign: 'center', verticalAlign: 'center', fontSize: '22px', fontWeight: 'bold' });
             (function (t, button) { button.SetPanelEvent('onactivate', function () {
                 if (binding.state && (binding.state.bits & (1 << t)) === 0 && t === nextTier(binding.state.bits)) train(binding);
-            }); }(tier, row));
+            }); button.SetPanelEvent('oncontextmenu', function () { return undo(binding); }); }(tier, row));
             binding.rows.push({ panel: row, label: text, tier: tier });
         }
         var button = icon.FindChildTraverse('button_container');
@@ -40,6 +45,7 @@ var AbilityDraftUpgrades = (function () {
             // Use a real button above the native image so M1 emits onactivate.
             binding.click.BLoadLayout('file://{resources}/layout/ability_draft_upgrade_click.xml', false, false);
             binding.click.SetPanelEvent('onactivate', function () { train(binding); });
+            binding.click.SetPanelEvent('oncontextmenu', function () { return undo(binding); });
         }
         return binding;
     }
@@ -79,7 +85,7 @@ var AbilityDraftUpgrades = (function () {
                 var learned = (ability.bits & (1 << row.tier)) !== 0;
                 var next = row.tier === nextTier(ability.bits);
                 var ready = !learned && next && ability.canTrain;
-                row.panel.enabled = ready;
+                row.panel.enabled = ready || (learned && ability.canUndo);
                 row.panel.style.opacity = learned || ready ? '1' : '0.45';
                 row.panel.style.backgroundColor = learned ? '#c8b0f5' : ready ? '#69d897' : '#191c1b';
                 row.label.style.color = learned || ready ? '#17221c' : '#c3c6c3';

@@ -11,7 +11,7 @@ public sealed class DraftServerOptions
     public string GameRoot { get; set; } = "";
     public string StateDirectory { get; set; } = "";
     public string BackendUrl { get; set; } = "http://127.0.0.1:5050/";
-    public string WebsiteUrl { get; set; } = "http://localhost:5050/";
+    public string WebsiteUrl { get; set; } = "https://localhost:7050/";
     public int CustomPort { get; set; } = 27067;
     public int PublicPort { get; set; } = 27068;
 }
@@ -50,7 +50,7 @@ public sealed class WindowsDraftServerHost(IOptions<DraftServerOptions> options,
         info.Environment["ABILITYDRAFT_LOCAL_MATCH_TEST"] = "0";
         info.Environment["ABILITYDRAFT_ENABLE_RUNTIME"] = "0"; // Only match workers manipulate heroes.
         var process = Process.Start(info) ?? throw new InvalidOperationException("Drafting server did not start.");
-        return new WindowsMatchWorkerHost.OwnedProcess(process, launch.Directory);
+        return new DeadworksMatchWorkerHost.OwnedProcess(process, launch.Directory);
     }
 }
 

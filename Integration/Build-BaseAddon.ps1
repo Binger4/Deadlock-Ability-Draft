@@ -5,7 +5,7 @@ param(
     [string]$DraftServer = '127.0.0.1:27067',
     [string]$PublicQueueServer = '127.0.0.1:27068',
     [string]$WebsiteUrl,
-    [string]$DeadworksSourceDirectory = (Join-Path $PSScriptRoot '../Tools/DeadworksRelease/source-v0.5.3/Deadworks-net-deadworks-06d468c'),
+    [string]$DeadworksSourceDirectory = (Join-Path $PSScriptRoot '../Tools/DeadworksRelease/source-v0.5.6/Deadworks-net-deadworks-9d67333'),
     [switch]$NoRestore
 )
 $ErrorActionPreference = 'Stop'

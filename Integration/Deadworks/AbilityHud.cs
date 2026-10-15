@@ -24,7 +24,7 @@ public sealed partial class AbilityDraftPlugin
             {
                 var bits = a.UpgradeBits;
                 var cost = (bits & 2) == 0 ? 1 : (bits & 4) == 0 ? 2 : (bits & 8) == 0 ? 5 : int.MaxValue;
-                return new { slot = (int)a.AbilitySlot + 1, bits,
+                return new { slot = (int)a.AbilitySlot + 1, bits, canUndo = CanUndoAbility(player, pawn, a),
                     canTrain = a.CanBeUpgraded && ((bits & 1) == 0 ? unlocks > 0 : points >= cost) };
             }).ToArray();
             var json = JsonSerializer.Serialize(new { enabled = matchReleased && abilityTraining is not null &&
