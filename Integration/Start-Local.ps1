@@ -2,6 +2,22 @@ param([switch]$SeparateMatches = $true)
 $ErrorActionPreference = 'Stop'
 $config = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'local/settings.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 $repo = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
+# Serialize shortcut launches, including the time before HTTP begins listening.
+# The process-level lease in Program also covers direct dotnet run launches.
+$startupLock = $null
+$startupDeadline = [DateTime]::UtcNow.AddMinutes(3)
+$reportedWait = $false
+while (!$startupLock) {
+    try {
+        $startupLock = [IO.File]::Open((Join-Path $PSScriptRoot 'local/startup.lock'),
+            [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+    } catch [IO.IOException] {
+        if ([DateTime]::UtcNow -ge $startupDeadline) { throw 'Another local startup is still in progress. Wait for it to finish, then launch again.' }
+        if (!$reportedWait) { Write-Output 'Another local startup is in progress; waiting for it to finish...'; $reportedWait = $true }
+        Start-Sleep -Milliseconds 250
+    }
+}
+try {
 & (Join-Path $PSScriptRoot 'Test-LocalClient.ps1') -GameRoot $config.GameRoot
 $listening = $false
 try { $listening = (Invoke-WebRequest -Uri $config.BackendUrl -UseBasicParsing -TimeoutSec 3).StatusCode -eq 200 } catch { }
@@ -23,6 +39,8 @@ if (!$listening) {
         if ($listening) { break }
     }
     if (!$listening) { throw 'The website did not start. Check Integration/local/backend.err.log.' }
+} else {
+    Write-Output 'Reusing the running local website and drafting servers.'
 }
 if (!$SeparateMatches -and !(Get-Process deadworks -ErrorAction SilentlyContinue)) {
     & (Join-Path $PSScriptRoot 'Start-LocalServer.ps1') -SeparateMatches:$false
@@ -50,3 +68,6 @@ Write-Output 'In Deadlock, open Play and choose Ability Draft Public Queue or Cu
 Write-Output "Console fallback (F7): connect 127.0.0.1:$($config.ServerPort)"
 Write-Output 'START MATCH starts a separate match server when SeparateMatches is enabled.'
 Write-Output 'Initial map loading can take about a minute. Logs: Integration/local/drafting/custom and public.'
+} finally {
+    $startupLock.Dispose()
+}

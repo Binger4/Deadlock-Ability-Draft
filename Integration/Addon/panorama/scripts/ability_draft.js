@@ -3,6 +3,7 @@
     'use strict';
     var panel, room = null, lastRoom, team = 'HiddenKing', mode = 'FreePick', scope = 'Allies';
     var selectedCard, movingSlot, muted = {}, alive = false, remaining = 0, clockAt = 0;
+    var lastShuffle = '';
     function send(operation, fields) {
         var command = fields || {}; command.operation = operation;
         panel.send('command', encodeURIComponent(JSON.stringify(command)));
@@ -73,6 +74,15 @@
                 (p.team === 'Spectator' ? ' · spectator' : p.ready ? ' · ready' : '') + (!p.connected ? ' · offline' : ''));
             name.SetPanelEvent('oncontextmenu', function () { muted[p.id] = !muted[p.id]; renderChat(); });
             var slots = $.CreatePanel('Panel', node, ''); slots.AddClass('Loadout');
+            var assignment = (room.shuffleAssignments || []).filter(function (a) { return a.recipientSlot === p.slot; })[0];
+            if (assignment) {
+                var donor = room.players.filter(function (source) { return source.slot === assignment.sourceSlot; })[0];
+                label(node, 'Drafted by ' + (donor ? donor.name : '#' + assignment.sourceSlot) + ' → ' + p.name, 'ShuffleAssignment');
+                if (lastShuffle !== room.code) {
+                    slots.AddClass('ShuffleDealing');
+                    $.Schedule(0.05, function () { if (slots.IsValid()) slots.RemoveClass('ShuffleDealing'); });
+                }
+            }
             p.abilities.forEach(function (key, i) {
                 var button = $.CreatePanel('Button', slots, '');
                 if (key && key !== '?') icon(button, 'Abilities', key); else label(button, key || '—');
@@ -84,6 +94,7 @@
                 });
             });
         });
+        if ((room.shuffleAssignments || []).length) lastShuffle = room.code;
         renderChat();
     }
     function renderChat() {

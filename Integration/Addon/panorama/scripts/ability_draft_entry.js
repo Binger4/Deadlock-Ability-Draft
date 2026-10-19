@@ -17,15 +17,27 @@
         $.Msg('[AbilityDraft] connecting to drafting server for ' + kind);
         $.DispatchEvent('CitadelConCommand', 'connect ' + address);
     }
-    context.FindChildTraverse('AbilityDraftPublic').SetPanelEvent('onactivate', function () { connect('public'); });
-    context.FindChildTraverse('AbilityDraftCustom').SetPanelEvent('onactivate', function () { connect('custom'); });
+    function bindEntries(attempt) {
+        if (!context.IsValid()) return;
+        var publicEntry = context.FindChildTraverse('AbilityDraftPublic');
+        var customEntry = context.FindChildTraverse('AbilityDraftCustom');
+        if (!publicEntry || !customEntry) {
+            if (attempt < 100) $.Schedule(0.05, function () { bindEntries(attempt + 1); });
+            else $.Msg('[AbilityDraft] Play entries missing; rebuild the addon against the installed game.');
+            return;
+        }
+        publicEntry.SetPanelEvent('onactivate', function () { connect('public'); });
+        customEntry.SetPanelEvent('onactivate', function () { connect('custom'); });
+        updateAvailability();
+    }
     function updateAvailability() {
         if (!context.IsValid()) return;
         var queued = inQueue();
         ['AbilityDraftPublic', 'AbilityDraftCustom'].forEach(function (id) {
-            context.FindChildTraverse(id).enabled = !queued;
+            var entry = context.FindChildTraverse(id);
+            if (entry) entry.enabled = !queued;
         });
         $.Schedule(0.1, updateAvailability);
     }
-    updateAvailability();
+    $.Schedule(0, function () { bindEntries(0); });
 }());

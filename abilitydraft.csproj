@@ -21,6 +21,8 @@
 
   <ItemGroup>
     <Content Include="Integration\dist\ability_draft_base.vpk" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="Exists('Integration\dist\ability_draft_base.vpk')" />
+    <Content Include="Integration\dist\gameplay\AbilityDraft.Gameplay.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="Exists('Integration\dist\gameplay\AbilityDraft.Gameplay.dll')" />
+    <Content Include="Integration\dist\localization\**\*.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

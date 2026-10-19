@@ -9,6 +9,13 @@ using System.Security.Claims;
 using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
+using var localBackend = await LocalBackendStartup.AcquireAsync(builder.Environment.ContentRootPath, builder.Configuration, builder.Environment.IsDevelopment());
+if (!localBackend.ShouldStart)
+{
+    Console.WriteLine(localBackend.Message);
+    Environment.ExitCode = localBackend.ExitCode;
+    return;
+}
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 builder.Services.AddDataProtection()

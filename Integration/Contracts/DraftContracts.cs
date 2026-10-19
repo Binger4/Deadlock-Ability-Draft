@@ -9,13 +9,15 @@ public sealed record Card(string Id, string Name, string Kind, string? IconKey,
 public sealed record Participant(string Id, string Name, string Team, bool Host, bool Ready,
     bool Connected, int? Slot, string? HeroKey, string[] Abilities, bool CanReorder);
 public sealed record PickView(int Slot, string Kind, string CardId);
-public sealed record TurnView(int Slot, string Kind, int Round);
+public sealed record TurnView(int Slot, string Kind, int Round, bool IsRetry = false);
+public sealed record ShuffleAssignmentView(int RecipientSlot, int SourceSlot, string[] AbilityKeys);
 public sealed record ChatView(int Id, string SenderId, string Sender, string Team, string Scope, string Text);
 public sealed record RoomView(int ProtocolVersion, string Code, string Name, string Status, string Mode,
     string SelfId, DateTime ServerUtc, DateTime TimerEndsUtc, string TimerPhase, int CurrentTurnIndex,
     Participant[] Players, Card[] Heroes, Card[] Abilities, TurnView[] Turns,
     PickView[] Picks, ChatView[] Chat, bool DisableChat, bool Blind, bool FlexibleSlots,
-    string? RuntimeResultId, bool IsPublicQueue = false, DateTime? MatchReadyUtc = null);
+    string? RuntimeResultId, bool IsPublicQueue = false, DateTime? MatchReadyUtc = null,
+    bool AbilityDraftShuffle = false, ShuffleAssignmentView[]? ShuffleAssignments = null);
 public sealed record ExternalWebsiteLink(string Id, string Url);
 public sealed record NativeChatRequest(string Id, string RoomCode, string Scope, int Revision = 0);
 public sealed record CommandReply(RoomView? State, string? Error = null, ExternalWebsiteLink? ExternalLink = null,

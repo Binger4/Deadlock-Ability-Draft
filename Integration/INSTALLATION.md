@@ -81,10 +81,10 @@ Tools/
     libSkiaSharp.dll
     spirv-cross.dll
   DeadworksRelease/
-    v0.5.6/game/bin/win64/deadworks.exe
-    v0.5.6/game/bin/win64/managed/DeadworksManaged.Api.dll
-    v0.5.6/game/citadel/cfg/deadworks_mem.jsonc
-    source-v0.5.6/Deadworks-net-deadworks-9d67333/client-bootstrap/
+    v0.6.1/game/bin/win64/deadworks.exe
+    v0.6.1/game/bin/win64/managed/DeadworksManaged.Api.dll
+    v0.6.1/game/citadel/cfg/deadworks_mem.jsonc
+    source-v0.6.1/Deadworks-net-deadworks-3888df2/client-bootstrap/
 Integration/local/
   deadworks-bootstrap.vpk
   bootstrap-manifest.json
@@ -104,26 +104,26 @@ The required executable is `Tools/Source2ViewerCLI/Source2Viewer-CLI.exe`. The s
 
 ### Deadworks release and matching source
 
-Download **[deadworks-v0.5.6.zip](https://github.com/Deadworks-net/deadworks/releases/download/v0.5.6/deadworks-v0.5.6.zip)** from the [official release](https://github.com/Deadworks-net/deadworks/releases/tag/v0.5.6). Extract its `game` folder into `Tools/DeadworksRelease/v0.5.6`, retaining every file. This is the build/installer copy; putting it in `Tools` alone does not install it into Deadlock.
+Download **[deadworks-v0.6.1.zip](https://github.com/Deadworks-net/deadworks/releases/download/v0.6.1/deadworks-v0.6.1.zip)** from the [official release](https://github.com/Deadworks-net/deadworks/releases/tag/v0.6.1). Extract its `game` folder into `Tools/DeadworksRelease/v0.6.1`, retaining every file. This is the build/installer copy; putting it in `Tools` alone does not install it into Deadlock.
 
 Download the **matching source separately** for the `client-bootstrap` source and licence notices included with the player package. To obtain the exact directory layout expected by the default build command, run:
 
 ```powershell
 $ErrorActionPreference = 'Stop'
 New-Item -ItemType Directory -Path Tools/Downloads -Force | Out-Null
-Invoke-WebRequest 'https://api.github.com/repos/Deadworks-net/deadworks/zipball/v0.5.6' `
-  -OutFile Tools/Downloads/deadworks-source-v0.5.6.zip
-Expand-Archive Tools/Downloads/deadworks-source-v0.5.6.zip `
-  -DestinationPath Tools/DeadworksRelease/source-v0.5.6 -Force
+Invoke-WebRequest 'https://api.github.com/repos/Deadworks-net/deadworks/zipball/v0.6.1' `
+  -OutFile Tools/Downloads/deadworks-source-v0.6.1.zip
+Expand-Archive Tools/Downloads/deadworks-source-v0.6.1.zip `
+  -DestinationPath Tools/DeadworksRelease/source-v0.6.1 -Force
 ```
 
-Confirm `Tools/DeadworksRelease/source-v0.5.6/Deadworks-net-deadworks-9d67333/client-bootstrap` exists. If you used GitHub's **Source code (zip)** download instead, its outer folder can have a different name; pass that directory with `-DeadworksSourceDirectory` when building. The source archive is not the runnable server release, and neither archive includes the compiled client bridge obtained below.
+Confirm `Tools/DeadworksRelease/source-v0.6.1/Deadworks-net-deadworks-3888df2/client-bootstrap` exists. If you used GitHub's **Source code (zip)** download instead, its outer folder can have a different name; pass that directory with `-DeadworksSourceDirectory` when building. The source archive is not the runnable server release, and neither archive includes the compiled client bridge obtained below.
 
 For local hosting, [Install-LocalAddon.ps1](Install-LocalAddon.ps1) copies the complete release from `Tools` into the configured Deadlock installation with backups. For a dedicated server, extract/copy the release's `game` folder into that server's game root and build/install the plugin using [HOSTING.md](HOSTING.md#compile-and-update-on-the-vps). The final server executable must be `<GameRoot>/game/bin/win64/deadworks.exe`, with the release's managed files and `game/citadel/cfg/deadworks_mem.jsonc` alongside their original paths.
 
 ### Official client bridge
 
-The player addon bundles official Deadworks bootstrap **version 7**. Download the compressed VPK, extract it and save its checksum manifest. This is required even when you only build a public player package and never run the local installer.
+The player addon bundles official Deadworks bootstrap **version 8**. Download the compressed VPK, extract it and save its checksum manifest. This is required even when you only build a public player package and never run the local installer.
 
 The following commands use the standard 7-Zip installation path; adjust `$sevenZip` if you installed it elsewhere. They download the pinned bridge without needing private settings from another developer:
 
@@ -132,8 +132,8 @@ $ErrorActionPreference = 'Stop'
 $sevenZip = 'C:/Program Files/7-Zip/7z.exe'
 if (!(Test-Path -LiteralPath $sevenZip)) { throw 'Install 7-Zip x64 first.' }
 New-Item -ItemType Directory -Path Tools/Downloads,Integration/local -Force | Out-Null
-$bridgeUrl = 'https://api.deadworks.net/api/bootstrap/v/7.vpk.bz2'
-$bridgeHash = 'f7fee4a45081423923a1414704da8bb96bb1b4a511f8ce23ce16fd81f30b72ac'
+$bridgeUrl = 'https://api.deadworks.net/api/bootstrap/v/8.vpk.bz2'
+$bridgeHash = '89feb195cb1f613883d7ebc98f956855373844358a4318a069649e44b10f4a92'
 Invoke-WebRequest $bridgeUrl -OutFile Tools/Downloads/deadworks-bootstrap.vpk.bz2
 & $sevenZip x Tools/Downloads/deadworks-bootstrap.vpk.bz2 '-oIntegration/local' -y
 if ($LASTEXITCODE -ne 0) { throw 'Client bridge extraction failed.' }
@@ -141,8 +141,8 @@ if ((Get-FileHash Integration/local/deadworks-bootstrap.vpk -Algorithm SHA256).H
     throw 'Client bridge checksum mismatch; do not build or install it.'
 }
 [ordered]@{
-    version = 7
-    compressed_size = 269545
+    version = 8
+    compressed_size = 299548
     sha256 = $bridgeHash
     download_url = $bridgeUrl
     min_version = 0
@@ -200,7 +200,7 @@ Building does not install the VPK. For a public website, build it **before** pub
 | Source2Viewer CLI missing | Extract `cli-windows-x64.zip` into the exact folder above, including its DLLs. |
 | Compiler missing or native DLL load error | Check CSDK's extraction depth, `bin_cs2` path and complete matching DLL set. |
 | `bootstrap-manifest.json` / bridge missing | Complete [Official client bridge](#official-client-bridge); initialization does not download it. |
-| Deadworks API DLL missing during build | Extract the runnable Deadworks release into `Tools/DeadworksRelease/v0.5.6`, or pass `DeadworksManagedDir` as described in HOSTING. |
+| Deadworks API DLL missing during build | Extract the runnable Deadworks release into `Tools/DeadworksRelease/v0.6.1`, or pass `DeadworksManagedDir` as described in HOSTING. |
 | Empty hero/ability catalogue | Finish [Website installation](#website-installation), check GitHub connectivity and press Verify in admin. |
 | Scripts are blocked | Use `pwsh -NoProfile -ExecutionPolicy Bypass -File <script-path>` for a script you have reviewed; this applies to that process. Organization policy may still restrict it. |
 | Game update removed the menu or mounting | Follow [Updating after a game patch](HOSTING.md#updating-after-a-game-patch). Rebuild/install the current package and restore its addon search path. |

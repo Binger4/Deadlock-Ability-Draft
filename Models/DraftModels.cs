@@ -205,6 +205,7 @@ public sealed class DraftRoom
     public string? LastError { get; set; }
     public bool CompletedStatsRecorded { get; set; }
     public DateTime? CompletedUtc { get; set; }
+    public List<DraftShuffleAssignment> ShuffleAssignments { get; } = [];
     // Set only by the opt-in runtime export path. Existing ZIP/VPK export is independent.
     public string? RuntimeResultId { get; set; }
 
@@ -238,6 +239,7 @@ public sealed class DraftRoomConfig
     public bool FlexibleUltimateSlots { get; set; }
     public bool BlindDraft { get; set; }
     public bool FullRandom { get; set; }
+    public bool AbilityDraftShuffle { get; set; }
     public bool DisableChat { get; set; }
     public int PreparationSeconds { get; set; }
     public int PickSeconds { get; set; }
@@ -320,8 +322,9 @@ public sealed class DraftAbilityPoolItem
     public string ReplacementReason { get; init; } = string.Empty;
 }
 
-public sealed record DraftTurn(int SlotNumber, DraftPickKind PickKind, int RoundNumber);
+public sealed record DraftTurn(int SlotNumber, DraftPickKind PickKind, int RoundNumber, bool IsRetry = false);
 public sealed record DraftPickRecord(int SlotNumber, DraftPickKind PickKind, string PickedKey, DateTime PickedUtc);
+public sealed record DraftShuffleAssignment(int RecipientSlot, int SourceSlot, string[] AbilityKeys);
 public sealed record DraftSoundEvent(int Id, DraftSoundScope Scope, string SoundPath, string? TargetPlayerId, DateTime CreatedUtc);
 public sealed record DraftChatMessage(int Id, string SenderPlayerId, string SenderName, DeadlockTeam SenderTeam, DraftChatScope Scope, string Text, DateTime SentUtc, bool IsQuick);
 public sealed record JoinRoomResult(string RoomCode, string PlayerId, int? SlotNumber);
@@ -351,7 +354,7 @@ public sealed class CompletedDraftStatsRecord
     public bool? AllowEmptySlotsAsBots { get; set; }
     public List<DraftStatsParticipantRecord>? Participants { get; set; }
 }
-public sealed record GeneratedModFile(string Path, string Content);
+public sealed record GeneratedModFile(string Path, string Content, byte[]? BinaryContent = null);
 public sealed record DeadPackerStatus(
     bool Enabled,
     string ExecutablePath,

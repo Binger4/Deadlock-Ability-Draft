@@ -5,7 +5,7 @@ param(
     [string]$DraftServer = '127.0.0.1:27067',
     [string]$PublicQueueServer = '127.0.0.1:27068',
     [string]$WebsiteUrl,
-    [string]$DeadworksSourceDirectory = (Join-Path $PSScriptRoot '../Tools/DeadworksRelease/source-v0.5.6/Deadworks-net-deadworks-9d67333'),
+    [string]$DeadworksSourceDirectory = (Join-Path $PSScriptRoot '../Tools/DeadworksRelease/source-v0.6.1/Deadworks-net-deadworks-3888df2'),
     [switch]$NoRestore
 )
 $ErrorActionPreference = 'Stop'
@@ -47,6 +47,15 @@ $game = Join-Path $csdk "game/citadel_addons/$addon"
 $dist = Join-Path $PSScriptRoot 'dist'
 New-Item -ItemType Directory -Path $content,$dist -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Addon/panorama') -Destination $content -Recurse
+& (Join-Path $PSScriptRoot 'Build-Gameplay.ps1') -NoRestore:$NoRestore
+$dataBuild = @('build', (Join-Path $PSScriptRoot 'CompatibilityData/AbilityDraft.CompatibilityData.csproj'), '-m:1')
+if ($NoRestore) { $dataBuild += '--no-restore' }
+& $dotnetExe @dataBuild
+if ($LASTEXITCODE -ne 0) { throw 'Could not build gameplay data preparation.' }
+& $dotnetExe run --no-build --project (Join-Path $PSScriptRoot 'CompatibilityData/AbilityDraft.CompatibilityData.csproj') -- (Join-Path $PSScriptRoot '../Data/Deadlock/abilities.vdata') (Join-Path $PSScriptRoot '../Data/Deadlock/heroes.vdata') $content
+if ($LASTEXITCODE -ne 0) { throw 'Could not prepare shared gameplay compatibility data.' }
+& $dotnetExe run --no-build --project (Join-Path $PSScriptRoot 'CompatibilityData/AbilityDraft.CompatibilityData.csproj') -- --localization $GameRoot $content (Join-Path $dist 'localization')
+if ($LASTEXITCODE -ne 0) { throw 'Could not prepare gameplay localization aliases.' }
 $originJson = ConvertTo-Json -InputObject $website.AbsoluteUri -Compress
 [IO.File]::WriteAllText((Join-Path $content 'panorama/scripts/ability_draft_site_config.js'),
     ('var AbilityDraftWebsiteOrigin = ' + $originJson + ';'), [Text.UTF8Encoding]::new($false))
@@ -63,6 +72,7 @@ $viewer = Join-Path $PSScriptRoot '../Tools/Source2ViewerCLI/Source2Viewer-CLI.e
 # Compile our layouts after extraction so the bridge cannot replace the Play menu.
 & $viewer -i $bridge -o $game | Out-Null
 if ($LASTEXITCODE -ne 0) { throw 'Could not include the pinned Deadworks UI bridge.' }
+Copy-Item -LiteralPath (Join-Path $content 'resource') -Destination $game -Recurse -Force
 $bridgeMenu = Join-Path $game 'panorama/layout/citadel_db_page_play.vxml_c'
 if (Test-Path -LiteralPath $bridgeMenu) { Remove-Item -LiteralPath $bridgeMenu }
 $start = [System.Diagnostics.ProcessStartInfo]::new()
@@ -73,20 +83,25 @@ $start.CreateNoWindow = $true
 $start.RedirectStandardOutput = $true
 $start.RedirectStandardError = $true
 $start.EnvironmentVariables['PATH'] = (Split-Path $compiler) + ';' + (Join-Path $csdk 'game/citadel/bin/win64') + ';' + $env:PATH
-$compilerArguments = @('-game', (Join-Path $csdk 'game/citadel'), '-r', '-i', (Join-Path $content 'panorama/layout/*.xml'))
-if ($PSVersionTable.PSVersion.Major -ge 7) {
-    foreach ($argument in $compilerArguments) { $start.ArgumentList.Add($argument) }
-} else {
-    $start.Arguments = ($compilerArguments | ForEach-Object { '"' + $_ + '"' }) -join ' '
+$log = ''
+foreach ($inputPattern in @('scripts/*.vdata', 'panorama/layout/*.xml')) {
+    $compilerArguments = @('-game', (Join-Path $csdk 'game/citadel'), '-r', '-i', (Join-Path $content $inputPattern))
+    if ($PSVersionTable.PSVersion.Major -ge 7) {
+        $start.ArgumentList.Clear()
+        foreach ($argument in $compilerArguments) { $start.ArgumentList.Add($argument) }
+    } else {
+        $start.Arguments = ($compilerArguments | ForEach-Object { '"' + $_ + '"' }) -join ' '
+    }
+    $process = [System.Diagnostics.Process]::Start($start)
+    $stdout = $process.StandardOutput.ReadToEndAsync()
+    $stderr = $process.StandardError.ReadToEndAsync()
+    if (!$process.WaitForExit(180000)) {
+        if ($PSVersionTable.PSVersion.Major -ge 7) { $process.Kill($true) } else { $process.Kill() }
+        throw 'Static addon compilation timed out.'
+    }
+    $log += $stdout.GetAwaiter().GetResult() + $stderr.GetAwaiter().GetResult()
+    if ($process.ExitCode -ne 0) { Set-Content -LiteralPath (Join-Path $dist 'compile.log') -Value $log; throw 'Static addon compilation failed. See Integration/dist/compile.log.' }
 }
-$process = [System.Diagnostics.Process]::Start($start)
-$stdout = $process.StandardOutput.ReadToEndAsync()
-$stderr = $process.StandardError.ReadToEndAsync()
-if (!$process.WaitForExit(180000)) {
-    if ($PSVersionTable.PSVersion.Major -ge 7) { $process.Kill($true) } else { $process.Kill() }
-    throw 'Static addon compilation timed out.'
-}
-$log = $stdout.GetAwaiter().GetResult() + $stderr.GetAwaiter().GetResult()
 Set-Content -LiteralPath (Join-Path $dist 'compile.log') -Value $log
 Write-Output (($log -split "`n" | Select-Object -Last 12) -join "`n")
 if ($process.ExitCode -ne 0 -or !(Test-Path -LiteralPath (Join-Path $game 'panorama/layout/ability_draft.vxml_c'))) {
@@ -95,14 +110,15 @@ if ($process.ExitCode -ne 0 -or !(Test-Path -LiteralPath (Join-Path $game 'panor
 if (!(Get-ChildItem -LiteralPath (Join-Path $game 'panorama/images') -Recurse -File -ErrorAction SilentlyContinue)) {
     throw 'Compiler did not produce the icon resources.'
 }
+if (!(Test-Path -LiteralPath (Join-Path $game 'scripts/abilities.vdata_c'))) { throw 'Gameplay compatibility data was not compiled.' }
 Set-Content -LiteralPath (Join-Path $dist 'compiled-addon-path.txt') -Value $game
 $notices = Join-Path $dist 'deadworks-bootstrap-source'
 New-Item -ItemType Directory -Path $notices -Force | Out-Null
 Copy-Item -Path (Join-Path $bridgeSource '*') -Destination $notices -Recurse -Force
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'local/bootstrap-manifest.json') -Destination $notices -Force
-if ($NoRestore) {
-    & $dotnetExe run --no-restore --project (Join-Path $PSScriptRoot 'Packaging/AbilityDraft.Packaging.csproj') -- $game (Join-Path $dist 'ability_draft_base.vpk')
-} else {
-    & $dotnetExe run --project (Join-Path $PSScriptRoot 'Packaging/AbilityDraft.Packaging.csproj') -- $game (Join-Path $dist 'ability_draft_base.vpk')
-}
+$packBuild = @('build', (Join-Path $PSScriptRoot 'Packaging/AbilityDraft.Packaging.csproj'), '-m:1')
+if ($NoRestore) { $packBuild += '--no-restore' }
+& $dotnetExe @packBuild
+if ($LASTEXITCODE -ne 0) { throw 'Could not build static VPK packaging.' }
+& $dotnetExe run --no-build --project (Join-Path $PSScriptRoot 'Packaging/AbilityDraft.Packaging.csproj') -- $game (Join-Path $dist 'ability_draft_base.vpk')
 if ($LASTEXITCODE -ne 0) { throw 'Static VPK packaging failed.' }

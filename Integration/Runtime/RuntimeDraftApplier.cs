@@ -168,6 +168,7 @@ public sealed class RuntimeDraftApplier(IGameDraftRuntime game, IMatchStartGate 
             if (!actual.Select(s => (s.Slot, s.Key)).SequenceEqual(player.Slots.OrderBy(s => s.Slot).Select(s => (s.Slot, s.AbilityKey))))
                 throw new InvalidOperationException("Failed ability assignment: slot readback differs.");
             game.SetStartingProgression(steam);
+            actual = game.SignatureAbilities(steam).OrderBy(s => s.Slot).ToArray();
             if (actual.Any(a => a.UpgradeBits != 0) || game.Progression(steam) != new RuntimeProgression(1, 0, 0))
                 throw new InvalidOperationException("Starting level/ability points failed readback.");
         }

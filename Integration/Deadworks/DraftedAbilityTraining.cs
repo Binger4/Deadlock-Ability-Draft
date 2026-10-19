@@ -12,7 +12,9 @@ public sealed partial class AbilityDraftPlugin
     {
         // Resolve before clients send commands: scanning during a network callback
         // can exceed the engine's per-message CPU budget and disconnect the player.
-        if (!allowRuntime) return;
+        // Hubs check the bridge at startup too, before a completed draft can
+        // launch a worker against an incompatible game update.
+        if (!allowRuntime && !IsDraftHub) return;
         try { abilityTraining = NativeAbilityTraining.Resolve(); Log("Native drafted ability training bridge ready"); }
         catch (Exception ex) { Log("Native drafted ability training unavailable: " + ex.Message); }
     }

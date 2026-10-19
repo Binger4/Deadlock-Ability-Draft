@@ -12,6 +12,7 @@ foreach (var required in new[] { "panorama/layout/hud_hideout.vxml_c", "panorama
 using var package = new Package();
 var resourceDirectory = Path.Combine(source, "resource");
 var files = Directory.GetFiles(Path.Combine(source, "panorama"), "*_c", SearchOption.AllDirectories)
+    .Concat(Directory.Exists(Path.Combine(source, "scripts")) ? Directory.GetFiles(Path.Combine(source, "scripts"), "*.vdata_c", SearchOption.AllDirectories) : [])
     .Concat(Directory.Exists(resourceDirectory)
         ? Directory.GetFiles(resourceDirectory, "*", SearchOption.AllDirectories) : []).ToArray();
 foreach (var file in files.Order(StringComparer.Ordinal))

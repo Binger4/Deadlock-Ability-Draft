@@ -144,6 +144,7 @@ else
                         <p>Slots: <strong>@(CurrentRoom.Config.FlexibleUltimateSlots ? "Flexible" : "Standard")</strong></p>
                         <p>Blind draft: <strong>@(CurrentRoom.Config.BlindDraft ? "Enabled" : "Off")</strong></p>
                         <p>Full Random: <strong>@(CurrentRoom.Config.FullRandom ? "Enabled" : "Off")</strong></p>
+                        <p>Ability Shuffle: <strong>@(CurrentRoom.Config.AbilityDraftShuffle ? "Enabled" : "Off")</strong></p>
                     }
                     <p>Chat: <strong>@(CurrentRoom.Config.DisableChat ? "Disabled" : "Enabled")</strong></p>
                     <p>Empty slots: <strong>@(CurrentRoom.Config.AllowEmptySlotsAsBots ? "Bots enabled" : "Removed at start")</strong></p>
@@ -345,6 +346,7 @@ else
 
             @if (CurrentRoom.Status == DraftRoomStatus.Completed)
             {
+                <ShuffleReveal Room="CurrentRoom" ViewerPlayerId="@PlayerId" />
                 <section class="summary-panel">
                     <h2>Final draft result</h2>
                     <div class="summary-grid">
@@ -383,6 +385,7 @@ else
                     {
                         <div class="download-actions">
                             <a class="download" download="@CurrentRoom.GeneratedVpkName" href="@DownloadVpkHref">Download VPK</a>
+                            <a class="download" download="@CurrentRoom.GeneratedZipName" href="@DownloadHref">Download sources / host helper</a>
                             <button class="download instruction-button" @onclick="() => ShowInstallInstructions = true">Instruction</button>
                         </div>
                     }
@@ -434,6 +437,7 @@ else
                         </div>
 
                         <ol class="instruction-list">
+                            <li>If this draft contains Chimera Mk1, Jettison Fuel or Living Ink, download the sources / host helper ZIP and follow HOST-SETUP.txt. These abilities require Deadworks on the host; installing only the VPK does not apply the native fix.</li>
                             <li>Open your Deadlock root folder.</li>
                             <li>Navigate to: <code>game/citadel</code></li>
                             <li>Create a folder named: <code>addons</code></li>
@@ -521,6 +525,7 @@ else
     private bool LobbyFlexibleUltimates;
     private bool LobbyBlindDraft;
     private bool LobbyFullRandom;
+    private bool LobbyAbilityDraftShuffle;
     private int LobbyPreparationSeconds;
     private int LobbyPickSeconds;
     private DraftMode LobbyCustomBaseDraftMode = DraftMode.FreePick;
@@ -737,6 +742,7 @@ else
         LobbyFlexibleUltimates = CurrentRoom.Config.FlexibleUltimateSlots;
         LobbyBlindDraft = CurrentRoom.Config.BlindDraft;
         LobbyFullRandom = CurrentRoom.Config.FullRandom;
+        LobbyAbilityDraftShuffle = CurrentRoom.Config.AbilityDraftShuffle;
         LobbyPreparationSeconds = CurrentRoom.Config.PreparationSeconds;
         LobbyPickSeconds = CurrentRoom.Config.PickSeconds;
         LobbyCustomBaseDraftMode = CurrentRoom.Config.CustomBaseDraftMode;
@@ -918,6 +924,7 @@ else
             <label class="toggle"><input type="checkbox" @bind="LobbyFlexibleUltimates" disabled="@(CurrentRoom?.InGameManaged == true)" /><span>Flexible ultimate slots@(CurrentRoom?.InGameManaged == true ? " (website export only)" : "")</span></label>
             <label class="toggle"><input type="checkbox" @bind="LobbyBlindDraft" /><span>Blind draft</span></label>
             <label class="toggle"><input type="checkbox" @bind="LobbyFullRandom" /><span>Full Random</span></label>
+            <label class="toggle"><input type="checkbox" @bind="LobbyAbilityDraftShuffle" /><span>Ability Shuffle</span></label>
             <label class="toggle"><input type="checkbox" @bind="LobbyAllowOverride" /><span>Host override picks/reorder</span></label>
         </div>
         <details class="custom-ban-panel">
@@ -1862,6 +1869,7 @@ else
             FlexibleUltimateSlots = LobbyDraftMode == DraftMode.Custom && LobbyFlexibleUltimates,
             BlindDraft = LobbyDraftMode == DraftMode.Custom && LobbyBlindDraft,
             FullRandom = LobbyDraftMode == DraftMode.Custom && LobbyFullRandom,
+            AbilityDraftShuffle = LobbyDraftMode == DraftMode.Custom && LobbyAbilityDraftShuffle,
             PreparationSeconds = LobbyPreparationSeconds,
             PickSeconds = LobbyPickSeconds,
             RequiredHeroCount = 1,

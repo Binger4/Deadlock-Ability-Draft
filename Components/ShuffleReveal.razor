@@ -1,0 +1,77 @@
+@using abilitydraft.Models
+@implements IDisposable
+
+@if (Room.ShuffleAssignments.Count > 0)
+{
+    @if (ShowingReveal)
+    {
+        <div class="shuffle-backdrop" aria-hidden="true"></div>
+    }
+    <section class="shuffle-reveal @(ShowingReveal ? "shuffle-overlay" : "")" role="@(ShowingReveal ? "dialog" : "region")" aria-modal="@(ShowingReveal ? "true" : null)" aria-label="Ability Shuffle assignments" @key="Room.CompletedUtc">
+        @if (ShowingReveal)
+        {
+            <button class="shuffle-continue" @onclick="() => ShowingReveal = false">Continue</button>
+        }
+        <p class="eyebrow">Ability Shuffle</p>
+        <h2>Your new skill sets</h2>
+        <p>Each complete set now belongs to its receiving player.</p>
+        <div class="shuffle-assignments">
+            @foreach (var assignment in Room.ShuffleAssignments.OrderByDescending(IsViewer))
+            {
+                <article class="shuffle-assignment @(IsViewer(assignment) ? "shuffle-yourself" : "")">
+                    <div class="shuffle-route">
+                        <span>Drafted by <strong>@PlayerName(assignment.SourceSlot)</strong></span>
+                        <span class="shuffle-arrow" aria-hidden="true">→</span>
+                        <span>Received by <strong>@PlayerName(assignment.RecipientSlot)</strong></span>
+                    </div>
+                    <div class="shuffle-skills">
+                        @foreach (var key in assignment.AbilityKeys)
+                        {
+                            var ability = Room.DeadlockData.Abilities.FirstOrDefault(a => a.Key == key);
+                            <div class="shuffle-skill">
+                                @if (ability?.IconDataUrl is { } icon)
+                                {
+                                    <img src="@icon" alt="" />
+                                }
+                                <span>@(ability?.DisplayName ?? key)</span>
+                            </div>
+                        }
+                    </div>
+                </article>
+            }
+        </div>
+    </section>
+}
+
+@code {
+    [Parameter, EditorRequired] public DraftRoom Room { get; set; } = null!;
+    [Parameter] public string? ViewerPlayerId { get; set; }
+    private readonly CancellationTokenSource lifetime = new();
+    private string? revealedResult;
+    private int generation;
+    private bool ShowingReveal;
+    protected override void OnParametersSet()
+    {
+        if (Room.ShuffleAssignments.Count == 0) return;
+        var result = Room.Code + Room.CompletedUtc?.Ticks;
+        if (revealedResult == result) return;
+        revealedResult = result;
+        ShowingReveal = Room.CompletedUtc is { } completed && DateTime.UtcNow - completed < TimeSpan.FromSeconds(15);
+        if (ShowingReveal) _ = FinishReveal(++generation);
+    }
+    private async Task FinishReveal(int current)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(6), lifetime.Token);
+            if (current != generation) return;
+            ShowingReveal = false;
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (OperationCanceledException) { }
+    }
+    public void Dispose() { lifetime.Cancel(); lifetime.Dispose(); }
+    private bool IsViewer(DraftShuffleAssignment assignment) => ViewerPlayerId is not null &&
+        Room.Players.First(p => p.SlotNumber == assignment.RecipientSlot).PlayerId == ViewerPlayerId;
+    private string PlayerName(int slot) => Room.Players.First(p => p.SlotNumber == slot).NameOrFallback;
+}

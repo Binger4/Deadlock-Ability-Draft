@@ -356,10 +356,11 @@ public sealed partial class InGameRoomAdapter(DraftRoomService rooms, ServerDead
                 m.SenderTeam.ToString(), m.Scope.ToString(), viewer.Team == DeadlockTeam.Spectator ? Censor(m.Text) : m.Text)).ToArray();
         return new(1, room.Code, room.Name, room.Status.ToString(), room.Config.DraftMode.ToString(),
             Opaque(room.Code, viewer.PlayerId), DateTime.UtcNow, room.TimerEndsUtc, room.TimerPhase.ToString(), room.CurrentTurnIndex,
-            players, heroes, abilities, room.TurnOrder.Select(t => new TurnView(t.SlotNumber, t.PickKind.ToString(), t.RoundNumber)).ToArray(),
+            players, heroes, abilities, room.TurnOrder.Select(t => new TurnView(t.SlotNumber, t.PickKind.ToString(), t.RoundNumber, t.IsRetry)).ToArray(),
             room.PickHistory.Select(p => new PickView(p.SlotNumber, p.PickKind.ToString(), Opaque(room.Code, p.PickedKey))).ToArray(),
             chat, room.Config.DisableChat, blind, room.Config.FlexibleUltimateSlots, room.RuntimeResultId,
-            room.IsPublicQueue, room.IsPublicQueue ? room.CompletedUtc?.AddSeconds(15) : null);
+            room.IsPublicQueue, room.IsPublicQueue ? room.CompletedUtc?.AddSeconds(15) : null,
+            room.Config.AbilityDraftShuffle, room.ShuffleAssignments.Select(a => new ShuffleAssignmentView(a.RecipientSlot, a.SourceSlot, a.AbilityKeys)).ToArray());
     }
 
     private void Finalize(DraftRoom room, DraftClientSession client)

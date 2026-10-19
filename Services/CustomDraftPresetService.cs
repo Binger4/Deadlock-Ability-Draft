@@ -24,6 +24,7 @@ public static class CustomDraftPresetService
             {
                 BaseDraftType = config.CustomBaseDraftMode,
                 FullRandom = config.FullRandom,
+                AbilityDraftShuffle = config.AbilityDraftShuffle,
                 BlindDraft = config.BlindDraft,
                 HeroPoolSize = config.HeroPoolSize,
                 MaxPlayers = config.MaxPlayers,
@@ -114,6 +115,7 @@ public static class CustomDraftPresetService
             DraftMode = DraftMode.Custom,
             CustomBaseDraftMode = NormalizeBaseDraftType(preset.Settings.BaseDraftType),
             FullRandom = preset.Settings.FullRandom ?? false,
+            AbilityDraftShuffle = preset.Settings.AbilityDraftShuffle ?? false,
             BlindDraft = preset.Settings.BlindDraft ?? false,
             HeroPoolSize = heroPoolSize,
             MaxPlayers = maxPlayers,
@@ -246,6 +248,7 @@ public static class CustomDraftPresetService
     {
         "baseDraftType",
         "fullRandom",
+        "abilityDraftShuffle",
         "blindDraft",
         "heroPoolSize",
         "maxPlayers",
@@ -357,6 +360,7 @@ public sealed class CustomDraftPresetSettings
 {
     public DraftMode? BaseDraftType { get; set; }
     public bool? FullRandom { get; set; }
+    public bool? AbilityDraftShuffle { get; set; }
     public bool? BlindDraft { get; set; }
     public int? HeroPoolSize { get; set; }
     public int? MaxPlayers { get; set; }

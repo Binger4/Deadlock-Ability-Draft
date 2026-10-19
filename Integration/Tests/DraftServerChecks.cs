@@ -1,6 +1,7 @@
 using abilitydraft.Services.InGame;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Hosting;
 
 static class DraftServerChecks
 {
@@ -44,6 +45,20 @@ static class DraftServerChecks
         supervisor.StopAsync(default).GetAwaiter().GetResult();
         Check(host.Processes.All(p => p.HasExited), "Website shutdown stops its owned drafting servers");
     }
+    public static async Task RunStartupLifetime(string temporary)
+    {
+        var host = new Host();
+        using var supervisor = new DraftServerSupervisor(
+            Options.Create(new DraftServerOptions { Enabled = true, StateDirectory = Path.Combine(temporary, "startup-drafting") }),
+            Options.Create(new InGameOptions { Enabled = true }), host, NullLogger<DraftServerSupervisor>.Instance, new Lifetime());
+        await supervisor.StartAsync(default);
+        await Task.Delay(50);
+        Check(host.Launched.Count == 0, "Drafting processes wait until the HTTP host has started successfully");
+        Check(supervisor.Status() is { Length: 2 } pending && pending.All(s => !s.Running && !s.Ready),
+            "The initial HTTP hosting status reports enabled lobbies as pending before the first supervision tick");
+        await supervisor.StopAsync(default);
+        Check(supervisor.ExecuteTask is { IsCompletedSuccessfully: true }, "Cancelling draft supervision during startup exits without a background-service exception");
+    }
     private static void Check(bool condition, string message) { if (!condition) throw new Exception("FAIL: " + message); Console.WriteLine("PASS: " + message); }
     private sealed class Host : IDraftServerHost
     {
@@ -56,5 +71,12 @@ static class DraftServerChecks
         public bool HasExited { get; private set; }
         public void Stop() => HasExited = true;
         public void Dispose() => Stop();
+    }
+    private sealed class Lifetime : IHostApplicationLifetime
+    {
+        public CancellationToken ApplicationStarted => CancellationToken.None;
+        public CancellationToken ApplicationStopping => CancellationToken.None;
+        public CancellationToken ApplicationStopped => CancellationToken.None;
+        public void StopApplication() { }
     }
 }

@@ -29,6 +29,8 @@ MatchWorkerChecks.Run(temporary);
 await GameNodeChecks.Run(temporary);
 InactivityChecks.Run();
 DraftServerChecks.Run(temporary);
+await DraftServerChecks.RunStartupLifetime(temporary);
+await LocalBackendStartupChecks.Run(temporary);
 PresetChecks.Run();
 StatsChecks.Run(temporary);
 ProjectLinksChecks.Run(temporary);
@@ -75,11 +77,13 @@ app.Urls.Add("http://127.0.0.1:0");
 var snapshot = app.Services.GetRequiredService<ServerDeadlockDataService>().Reload();
 Check(snapshot.IsLoaded, "Local Deadlock data loads");
 DataExportChecks.Run(snapshot.Data!, testPacking ? app.Services.GetRequiredService<DeadPackerService>() : null);
+HeroGameplayChecks.Run(snapshot.Data!, testPacking ? app.Services.GetRequiredService<DeadPackerService>() : null);
 await GameDataUpdateChecks.Run(root, temporary, app.Services.GetRequiredService<DeadlockFileParser>());
 await app.StartAsync();
 using var http = new HttpClient();
 var backend = new DraftBackendClient(http, new Uri(app.Urls.Single()), new string('x', 48));
 var rooms = app.Services.GetRequiredService<DraftRoomService>();
+DraftRuleChecks.Run(rooms);
 var adapter = app.Services.GetRequiredService<InGameRoomAdapter>();
 foreach (var mode in new[] { DraftMode.FreePick, DraftMode.Classic, DraftMode.RandomHero, DraftMode.Custom })
 {

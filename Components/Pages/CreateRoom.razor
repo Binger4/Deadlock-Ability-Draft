@@ -116,6 +116,7 @@
     private bool CustomFlexibleUltimates;
     private bool CustomBlindDraft;
     private bool CustomFullRandom;
+    private bool CustomAbilityDraftShuffle;
     private int CustomPreparationSeconds;
     private int CustomPickSeconds;
     private DraftMode CustomBaseDraftMode = DraftMode.FreePick;
@@ -183,6 +184,7 @@
             FlexibleUltimateSlots = SelectedDraftMode == DraftMode.Custom && CustomFlexibleUltimates,
             BlindDraft = SelectedDraftMode == DraftMode.Custom && CustomBlindDraft,
             FullRandom = SelectedDraftMode == DraftMode.Custom && CustomFullRandom,
+            AbilityDraftShuffle = SelectedDraftMode == DraftMode.Custom && CustomAbilityDraftShuffle,
             PreparationSeconds = SelectedDraftMode == DraftMode.Custom ? EffectivePreparationSeconds : 0,
             PickSeconds = SelectedDraftMode == DraftMode.Custom ? EffectivePickSeconds : 0,
             RequiredHeroCount = 1,
@@ -282,6 +284,7 @@
                 <label class="toggle"><input type="checkbox" @bind="CustomFlexibleUltimates" disabled="@IsGameEntry" /><span>Flexible ultimate slots@(IsGameEntry ? " (website export only)" : "")</span></label>
                 <label class="toggle"><input type="checkbox" @bind="CustomBlindDraft" /><span>Blind draft</span></label>
                 <label class="toggle"><input type="checkbox" @bind="CustomFullRandom" /><span>Full Random</span></label>
+                <label class="toggle"><input type="checkbox" @bind="CustomAbilityDraftShuffle" /><span>Ability Shuffle</span></label>
                 <label class="toggle"><input type="checkbox" @bind="AllowHostOverride" /><span>Allow host override picks/reorder for human slots</span></label>
             </div>
 
@@ -446,6 +449,7 @@
         CustomFlexibleUltimates = config.FlexibleUltimateSlots;
         CustomBlindDraft = config.BlindDraft;
         CustomFullRandom = config.FullRandom;
+        CustomAbilityDraftShuffle = config.AbilityDraftShuffle;
         AllowHostOverride = config.AllowHostOverridePicks;
         DisableChat = config.DisableChat;
         AllowBots = config.AllowEmptySlotsAsBots;

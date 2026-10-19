@@ -1452,6 +1452,7 @@ public sealed class DraftRoomService(
         room.TimerPhase = DraftTimerPhase.None;
         room.TimerEndsUtc = DateTime.UtcNow;
         room.CompletedUtc = room.TimerEndsUtc;
+        AbilityDraftShuffle.Apply(room);
         abilityAssignmentService.ValidateFinalDraft(room);
         RecordCompletedDraftStats(room);
         StopRoomTimer(room.Code);
@@ -1539,7 +1540,7 @@ public sealed class DraftRoomService(
         room.TimerPhase = DraftTimerPhase.Picking;
         room.TimerEndsUtc = DateTime.UtcNow.AddSeconds(room.Config.PickSeconds);
         room.TimerWarningTurnIndex = null;
-        if (CurrentTurnIsDisconnected(room))
+        if (CurrentTurnIsDisconnected(room) && room.Config.AutoPickBehavior != DraftAutoPickBehavior.SkipPick)
         {
             AutoPick(room);
             return;
@@ -1563,6 +1564,7 @@ public sealed class DraftRoomService(
         room.TimerEndsUtc = DateTime.UtcNow;
         room.CompletedUtc = room.TimerEndsUtc;
         room.TimerWarningTurnIndex = null;
+        AbilityDraftShuffle.Apply(room);
         abilityAssignmentService.ValidateFinalDraft(room);
         AddSound(room, DraftSoundScope.All, AutoPickSound);
         RecordCompletedDraftStats(room);
@@ -1708,10 +1710,10 @@ public sealed class DraftRoomService(
         }
 
         var slot = room.Players.First(player => player.SlotNumber == turn.SlotNumber);
-        if (room.Config.AutoPickBehavior == DraftAutoPickBehavior.SkipPick &&
-            CanSkipPickWithoutBreakingBuild(room, slot))
+        if (room.Config.AutoPickBehavior == DraftAutoPickBehavior.SkipPick && !slot.IsBot && !turn.IsRetry)
         {
-            room.ValidationMessages.Add($"{slot.NameOrFallback} skipped a pick.");
+            room.ValidationMessages.Add($"{slot.NameOrFallback} skipped a pick; their turn moves to the end.");
+            room.TurnOrder.Add(turn with { IsRetry = true });
             AdvanceTurn(room);
             return;
         }
@@ -1733,20 +1735,6 @@ public sealed class DraftRoomService(
 
         AddSound(room, DraftSoundScope.All, AutoPickSound);
         AdvanceTurn(room);
-    }
-
-    private static bool CanSkipPickWithoutBreakingBuild(DraftRoom room, DraftPlayerSlot slot)
-    {
-        var remainingTurnsAfterSkip = room.TurnOrder
-            .Skip(room.CurrentTurnIndex + 1)
-            .Count(turn => turn.SlotNumber == slot.SlotNumber);
-        var heroNeeded = string.IsNullOrWhiteSpace(slot.HeroKey) ? 1 : 0;
-        var abilityNeeded = room.Config.FlexibleUltimateSlots
-            ? Math.Max(0, room.Config.RequiredAbilitySlots - CountRegularAbilities(slot.Loadout.RegularAbilities))
-            : Math.Max(0, room.Config.RegularAbilityPicksPerPlayer - CountRegularAbilities(slot.Loadout.RegularAbilities)) +
-              Math.Max(0, room.Config.UltimatePicksPerPlayer - (string.IsNullOrWhiteSpace(slot.Loadout.Ultimate) ? 0 : 1));
-
-        return remainingTurnsAfterSkip >= heroNeeded + abilityNeeded;
     }
 
     private string? FindRandomValidPick(DraftRoom room, DraftPlayerSlot slot, DraftPickKind requiredKind)
@@ -1837,6 +1825,7 @@ public sealed class DraftRoomService(
         room.PickedHeroKeys.Clear();
         room.PickedAbilityKeys.Clear();
         room.PickHistory.Clear();
+        room.ShuffleAssignments.Clear();
         room.SoundEvents.Clear();
         room.GeneratedZip = null;
         room.GeneratedZipName = null;
@@ -2498,6 +2487,7 @@ public sealed class DraftRoomService(
             target.FlexibleUltimateSlots = false;
             target.BlindDraft = false;
             target.FullRandom = false;
+            target.AbilityDraftShuffle = false;
             target.MaxPlayers = 12;
             target.HeroPoolSize = 18;
             target.DisableChat = source.DisableChat;
@@ -2525,6 +2515,7 @@ public sealed class DraftRoomService(
         target.FlexibleUltimateSlots = source.FlexibleUltimateSlots;
         target.BlindDraft = source.BlindDraft;
         target.FullRandom = source.FullRandom;
+        target.AbilityDraftShuffle = source.AbilityDraftShuffle;
         target.DisableChat = source.DisableChat;
         target.RequiredHeroCount = 1;
         target.RequiredAbilitySlots = 4;
@@ -2660,13 +2651,14 @@ public sealed class DraftRoomService(
     private void Notify(string code) => RoomChanged?.Invoke(code);
 }
 
-public sealed class ModFileGenerator
+public sealed class ModFileGenerator(IWebHostEnvironment? environment = null)
 {
     public IReadOnlyList<GeneratedModFile> Generate(DraftRoom room)
     {
         var heroesDocument = room.DeadlockData.HeroesDocument.Clone();
         var abilitiesDocument = room.DeadlockData.AbilitiesDocument.Clone();
         abilitiesDocument.Root.Remove("_include");
+        DraftedHeroCompatibility.PrepareAbilities(abilitiesDocument);
 
         foreach (var player in DraftTurnService.ActiveSlots(room).Where(player => !string.IsNullOrWhiteSpace(player.HeroKey)))
         {
@@ -2689,6 +2681,7 @@ public sealed class ModFileGenerator
             if (!string.IsNullOrWhiteSpace(player.Loadout.Weapon))
                 boundAbilities.Set("ESlot_Weapon_Primary", new Kv3Scalar(player.Loadout.Weapon));
             var signatureAbilities = EnsureUnique(SlotAbilities(room, player, abilitiesDocument), abilitiesDocument);
+            DraftedHeroCompatibility.BindAlternateFire(boundAbilities, signatureAbilities, abilitiesDocument);
 
             for (var i = 0; i < signatureAbilities.Count; i++)
             {
@@ -2702,25 +2695,58 @@ public sealed class ModFileGenerator
             new("scripts/abilities.vdata", Kv3Writer.Write(abilitiesDocument))
         };
 
+        if (DraftTurnService.ActiveSlots(room).SelectMany(p => p.Loadout.PickedAbilityKeys()).Contains(DraftedHeroCompatibility.LivingInk))
+            files.AddRange(AbilityVariantLocalisation.Generate(
+                Path.Combine(environment?.ContentRootPath ?? Directory.GetCurrentDirectory(), "Integration/dist/localization"), abilitiesDocument.Root.Keys));
+
+        if (DraftTurnService.ActiveSlots(room).SelectMany(p => p.Loadout.PickedAbilityKeys()).Any(key =>
+            key is "ability_deadpack_rocketeer" or "ability_deadpack_flamethrower" or DraftedHeroCompatibility.LivingInk))
+        {
+            var companion = Path.Combine(environment?.ContentRootPath ?? Directory.GetCurrentDirectory(), "Integration/dist/gameplay/AbilityDraft.Gameplay.dll");
+            if (!File.Exists(companion))
+                throw new InvalidOperationException("Denny's abilities and Living Ink require the host gameplay companion. Run Integration/Build-Gameplay.ps1 before generating this draft.");
+            files.Add(new("host/managed/plugins/AbilityDraft.Gameplay.dll", "", File.ReadAllBytes(companion)));
+            files.Add(new("HOST-SETUP.txt", """
+                Ability Draft gameplay compatibility — Deadlock build 6794, Deadworks 0.6.1
+
+                Chimera Mk1, Jettison Fuel and Living Ink need server-side fixes for native slot lookups.
+                A VPK alone cannot apply this fix. The host must use Deadworks 0.6.1 on Windows
+                or Proton and copy host/managed/plugins/AbilityDraft.Gameplay.dll from this ZIP
+                into game/bin/win64/managed/plugins before starting Deadworks.
+                All participants must use the same generated VPK. Start the custom match with
+                Deadworks, not the stock Deadlock executable. The helper verifies server.dll
+                SHA256 before changing the affected in-memory calls; it does not modify DLLs on disk.
+                A later game update requires a compatible helper. Check the server log for
+                'Jettison Fuel shutdown and Living Ink drawing resolve the owner\'s drafted abilities by name'.
+                Before joining, also confirm 'Explicit gameplay precache registered' appears in the log.
+
+                Do not install this standalone helper alongside AbilityDraft.Deadworks.dll:
+                the complete Ability Draft integration already includes the same fix.
+                """));
+        }
+
         return files;
     }
 
     private static IReadOnlyList<string> SlotAbilities(DraftRoom room, DraftPlayerSlot player, Kv3Document abilitiesDocument)
     {
+        var chess = DraftedHeroCompatibility.HasChessPieces(player.Loadout.PickedAbilityKeys());
+        string Controls(string key, int slot) => key == DraftedHeroCompatibility.LivingInk ?
+            chess ? DraftedHeroCompatibility.InkWithoutDrawing : DraftedHeroCompatibility.InkForSlot(slot) : key;
         if (!room.Config.FlexibleUltimateSlots)
         {
             return [
-                EnsureType(player.Loadout.RegularAbilities.ElementAtOrDefault(0) ?? string.Empty, "EAbilityType_Signature", "signature", abilitiesDocument),
-                EnsureType(player.Loadout.RegularAbilities.ElementAtOrDefault(1) ?? string.Empty, "EAbilityType_Signature", "signature", abilitiesDocument),
-                EnsureType(player.Loadout.RegularAbilities.ElementAtOrDefault(2) ?? string.Empty, "EAbilityType_Signature", "signature", abilitiesDocument),
-                EnsureType(player.Loadout.Ultimate ?? string.Empty, "EAbilityType_Ultimate", "ultimate", abilitiesDocument)
+                EnsureType(Controls(player.Loadout.RegularAbilities.ElementAtOrDefault(0) ?? string.Empty, 1), "EAbilityType_Signature", "signature", abilitiesDocument),
+                EnsureType(Controls(player.Loadout.RegularAbilities.ElementAtOrDefault(1) ?? string.Empty, 2), "EAbilityType_Signature", "signature", abilitiesDocument),
+                EnsureType(Controls(player.Loadout.RegularAbilities.ElementAtOrDefault(2) ?? string.Empty, 3), "EAbilityType_Signature", "signature", abilitiesDocument),
+                EnsureType(Controls(player.Loadout.Ultimate ?? string.Empty, 4), "EAbilityType_Ultimate", "ultimate", abilitiesDocument)
             ];
         }
 
         var slotAbilities = new List<string>();
         for (var i = 0; i < 4; i++)
         {
-            var ability = player.Loadout.RegularAbilities.ElementAtOrDefault(i) ?? string.Empty;
+            var ability = Controls(player.Loadout.RegularAbilities.ElementAtOrDefault(i) ?? string.Empty, i + 1);
             slotAbilities.Add(i == 3
                 ? EnsureType(ability, "EAbilityType_Ultimate", "ultimate", abilitiesDocument)
                 : EnsureType(ability, "EAbilityType_Signature", "signature", abilitiesDocument));
@@ -2791,10 +2817,11 @@ public sealed class ZipExportService
         using var memory = new MemoryStream();
         using (var archive = new ZipArchive(memory, ZipArchiveMode.Create, leaveOpen: true))
         {
-            foreach (var file in files.Where(file => file.Path.EndsWith(".vdata", StringComparison.OrdinalIgnoreCase)))
+            foreach (var file in files)
             {
                 var entry = archive.CreateEntry(SafeZipEntryName(file.Path), CompressionLevel.Optimal);
                 using var stream = entry.Open();
+                if (file.BinaryContent is { } bytes) { stream.Write(bytes); continue; }
                 using var writer = new StreamWriter(stream, Encoding.UTF8);
                 writer.Write(file.Content);
             }
@@ -3000,6 +3027,17 @@ public sealed class DeadPackerService(IOptions<DeadPackerOptions> options, IWebH
             if (!compileResult.Success)
             {
                 return Fail(compileResult.Error);
+            }
+
+            // Localization is plain text at runtime, so it bypasses the
+            // resource compiler and is copied after the compiled output reset.
+            foreach (var file in files.Where(f => f.Path.StartsWith(AbilityVariantLocalisation.ResourcePath, StringComparison.Ordinal) && f.Path.EndsWith(".txt", StringComparison.Ordinal)))
+            {
+                var target = Path.GetFullPath(Path.Combine(addonGameDirectory, SafeRelativePath(file.Path)));
+                if (!IsPathWithinRoot(target, Path.GetFullPath(addonGameDirectory))) throw new InvalidOperationException("Unsafe localization output path.");
+                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                File.WriteAllText(target, file.Content, Encoding.UTF8);
+                log.AppendLine($"Included gameplay localization: {file.Path}");
             }
 
             File.WriteAllText(tomlPath, BuildPackToml(addonGameDirectory, outputPath), Encoding.UTF8);

@@ -17,6 +17,8 @@ public sealed partial class AbilityDraftPlugin : DeadworksPluginBase
     private readonly ConcurrentQueue<Action> completions = new();
     private readonly Dictionary<string, Session> sessions = new();
     private readonly DeadworksRuntime game = new();
+    private AbilityDraft.Gameplay.NativeDennyCompatibility? dennyCompatibility;
+    public override void OnAbilityAttempt(AbilityAttemptEvent args) => AbilityDraft.Gameplay.DraftedAlternateFire.Guard(args);
     private DraftBackendClient backend = null!;
     private RuntimeDraftApplier applier = null!;
     private IPreparationArea preparationArea = null!;
@@ -88,6 +90,7 @@ public sealed partial class AbilityDraftPlugin : DeadworksPluginBase
         preparationArea = new NativePreparationArea(game, Log);
         applier = new(game, new DraftPreparationGate(PlayersPrepared, ApplicationFailed), Log);
         InitializeAbilityTraining();
+        dennyCompatibility = AbilityDraft.Gameplay.NativeDennyCompatibility.Install();
         UI.Panel(PanelId).On("command", OnCommand);
         UI.Panel(PanelId).On("activity", e => RecordMatchActivity(e.Caller));
         UI.Panel(PanelId).On("shopReady", e => shopClients.Add(e.Caller.EntityHandle));
@@ -566,6 +569,7 @@ public sealed partial class AbilityDraftPlugin : DeadworksPluginBase
 
     public override void OnPrecacheResources()
     {
+        AbilityDraft.Gameplay.CompatibilityResources.Precache();
         game.ClearResourceCoverage();
         if (resourceCatalog is null) return;
         var count = 0;
@@ -706,6 +710,7 @@ public sealed partial class AbilityDraftPlugin : DeadworksPluginBase
     }
     public override void OnUnload()
     {
+        dennyCompatibility?.Dispose();
         itemPurchases.Clear();
         shopClients.Clear();
         stop.Cancel();

@@ -56,7 +56,7 @@ public sealed class WindowsDraftServerHost(IOptions<DraftServerOptions> options,
 
 // Owned by the website lifetime, never by a player's console or a launcher.
 public sealed class DraftServerSupervisor(IOptions<DraftServerOptions> options, IOptions<InGameOptions> integration,
-    IDraftServerHost host, ILogger<DraftServerSupervisor> logger) : BackgroundService
+    IDraftServerHost host, ILogger<DraftServerSupervisor> logger, IHostApplicationLifetime? lifetime = null) : BackgroundService
 {
     private readonly object gate = new();
     private readonly Dictionary<string, Entry> servers = new();
@@ -69,8 +69,15 @@ public sealed class DraftServerSupervisor(IOptions<DraftServerOptions> options, 
     }
     public DraftServerStatus[] Status()
     {
-        lock (gate) return servers.Values.Select(s => new DraftServerStatus(s.Launch.Role, s.Launch.Port,
-            s.Process is { HasExited: false }, s.Ready)).ToArray();
+        lock (gate)
+        {
+            // HTTP can answer before the first supervision tick. Report the
+            // configured lobbies as pending rather than supervision disabled.
+            if (servers.Count == 0 && options.Value.Enabled && integration.Value.Enabled)
+                return [new("custom", options.Value.CustomPort, false, false), new("public", options.Value.PublicPort, false, false)];
+            return servers.Values.Select(s => new DraftServerStatus(s.Launch.Role, s.Launch.Port,
+                s.Process is { HasExited: false }, s.Ready)).ToArray();
+        }
     }
     public void Poll(DateTime now)
     {
@@ -125,16 +132,27 @@ public sealed class DraftServerSupervisor(IOptions<DraftServerOptions> options, 
     }
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
-        do
+        try
         {
-            try { Poll(DateTime.UtcNow); }
-            catch (Exception ex) { logger.LogError(ex, "Draft server supervision failed"); }
-        } while (await timer.WaitForNextTickAsync(stoppingToken));
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
+            do
+            {
+                // A failed HTTP bind must not launch game servers first.
+                if (lifetime is null || lifetime.ApplicationStarted.IsCancellationRequested)
+                {
+                    try { Poll(DateTime.UtcNow); }
+                    catch (Exception ex) { logger.LogError(ex, "Draft server supervision failed"); }
+                }
+            } while (await timer.WaitForNextTickAsync(stoppingToken));
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }
     }
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
-        await base.StopAsync(cancellationToken);
-        lock (gate) foreach (var entry in servers.Values) { entry.Process?.Dispose(); entry.Process = null; entry.Ready = false; }
+        try { await base.StopAsync(cancellationToken); }
+        finally
+        {
+            lock (gate) foreach (var entry in servers.Values) { entry.Process?.Dispose(); entry.Process = null; entry.Ready = false; }
+        }
     }
 }

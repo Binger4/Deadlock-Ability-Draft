@@ -28,7 +28,7 @@ Run exactly one MAIN backend; multiple backend replicas are not supported. Rooms
 | PowerShell | [PowerShell 7](https://learn.microsoft.com/en-us/powershell/scripting/install/install-powershell-on-windows) for setup commands. |
 | Build tools | Prepare [CSDK, Source 2 Viewer CLI, Deadworks release/source and bootstrap](INSTALLATION.md#build-tools) on the build PC. These folders are excluded from Git and are not downloaded by publishing. |
 | Deadlock | A separate server installation, downloaded using [Windows SteamCMD](https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip), app ID `1422450`. |
-| Deadworks | Extract **v0.5.6** from the [official release](https://github.com/Deadworks-net/deadworks/releases/tag/v0.5.6) into the Deadlock installation. Install the entire release, including managed DLLs and `deadworks_mem.jsonc`; retest gameplay after updates. |
+| Deadworks | Extract **v0.6.1** from the [official release](https://github.com/Deadworks-net/deadworks/releases/tag/v0.6.1) into the Deadlock installation. Install the entire release, including managed DLLs and `deadworks_mem.jsonc`; retest gameplay after updates. |
 | Plugin | `AbilityDraft.Deadworks.dll`, `AbilityDraft.Runtime.dll` and `AbilityDraft.Contracts.dll`, built from this repository. |
 | Website | Complete publish output, production configuration, catalogue, icons, localisation and existing packing tools. `Tools` is excluded from automatic publishing. |
 | Players | Static Ability Draft VPK built with public addresses, plus the accompanying Deadworks bootstrap source and license notices. |
@@ -183,7 +183,7 @@ pwsh -NoProfile -File .\Integration\Build-BaseAddon.ps1 `
 
 Distribute `Integration/dist/ability_draft_base.vpk` with its `deadworks-bootstrap-source` notices. Rebuild when UI, icons, game compatibility or public addresses change. A completed draft does not need a new VPK.
 
-The build defaults to `Tools/DeadworksRelease/source-v0.5.6/Deadworks-net-deadworks-9d67333`. If the matching official source is elsewhere, pass `-DeadworksSourceDirectory '<directory containing client-bootstrap>'`. Keep the pinned bootstrap and its checksum manifest consistent with that source.
+The build defaults to `Tools/DeadworksRelease/source-v0.6.1/Deadworks-net-deadworks-3888df2`. If the matching official source is elsewhere, pass `-DeadworksSourceDirectory '<directory containing client-bootstrap>'`. Keep the pinned bootstrap and its checksum manifest consistent with that source.
 
 Give players the [player installation instructions](INSTALLATION.md#player-installation): install the complete package under `game/citadel/addons`, retain existing game paths and other mods, and launch with `-insecure`. Do not distribute a machine-specific replacement for the entire `gameinfo.gi`.
 
@@ -246,7 +246,7 @@ A public endpoint accepts players from different countries, but latency depends 
 
 ## Known limitations
 
-The current dependency pin is Deadworks 0.5.6 with client bootstrap 7 for Deadlock build 6763. Game updates can require a new compatible release and rebuilt player package. Player lane departure after the intro has an unresolved issue: the player may fall into base instead of travelling to the lane. Follow the deployment checks below before opening a server to players; successful process startup alone does not confirm the complete gameplay flow.
+The current dependency pin is Deadworks 0.6.1 with client bootstrap 8 for Deadlock build 6794. The native gameplay bridge is verified against that server build; later builds require an updated bridge. Browser exports containing Chimera Mk1, Jettison Fuel or Living Ink include a required host helper and its setup instructions in the generated ZIP. Living Ink's drawing dependency follows its drafted slot on both client and server; Solomon pieces take priority and use an Ink variant without drawing. Player lane departure after the intro has an unresolved issue: the player may fall into base instead of travelling to the lane. Follow the deployment checks below before opening a server to players; successful process startup alone does not confirm the complete gameplay flow.
 
 ## Check deployment
 
@@ -291,7 +291,7 @@ Stop the backend and close Deadlock before replacing files. This ends local matc
 1. Update the dedicated Deadlock installation and the clients. Record the server version from `game/citadel/steam.inf`.
 2. Check the [official releases](https://github.com/Deadworks-net/deadworks/releases) directly and install the compatible release in full, including `deadworks.exe`, the managed DLLs and `game/citadel/cfg/deadworks_mem.jsonc`. Replacing only the executable leaves old engine signatures behind. A newer game build may require another release; reinstalling the same incompatible version will not fix that.
 3. Rebuild the Ability Draft plugin against that release's `game/bin/win64/managed` directory, then install all three plugin DLLs as described above.
-4. If the official client bootstrap changed, update its pinned VPK and checksum manifest on the build PC. Keep its matching source and licence notices. Rebuild the player VPK from the current game's layouts; pass `-DeadworksSourceDirectory` to `Build-BaseAddon.ps1` if the matching source is outside the default path listed above. The current pin uses bootstrap version 7. Distribute the rebuilt player package too.
+4. If the official client bootstrap changed, update its pinned VPK and checksum manifest on the build PC. Keep its matching source and licence notices. Rebuild the player VPK from the current game's layouts; pass `-DeadworksSourceDirectory` to `Build-BaseAddon.ps1` if the matching source is outside the default path listed above. The current pin uses bootstrap version 8. Distribute the rebuilt player package too.
 5. Check the website's hero/ability data update in the admin panel. Start the website, verify both hubs, then test a match with both teams, lane swaps, preparation, abilities and spectators. Shop purchases and embedded-page keyboard input require a client test.
 
 For local hosting, prepare the release, source and bridge using [the installation guide](INSTALLATION.md#deadworks-release-and-matching-source), then run these commands in PowerShell 7 from the repository root (replace the source path with the extracted directory containing `client-bootstrap`):
@@ -306,7 +306,7 @@ dotnet build .\Integration\Deadworks\AbilityDraft.Deadworks.csproj
 .\Integration\Start-Local.ps1
 ```
 
-The current plugin build and installer default to v0.5.6. For a later release, pass `-p:DeadworksManagedDir=<absolute release path>/game/bin/win64/managed` to `dotnet build` and `-DeadworksReleaseDirectory <absolute release path>` to the installer. Do not run the installer while the game or servers are open. It backs up each replaced file and reports the backup directory. `Restore-LocalInstall.ps1` can restore that installation; it does not roll back Steam's game update.
+The current plugin build and installer default to v0.6.1. For a later release, pass `-p:DeadworksManagedDir=<absolute release path>/game/bin/win64/managed` to `dotnet build` and `-DeadworksReleaseDirectory <absolute release path>` to the installer. Do not run the installer while the game or servers are open. It backs up each replaced file and reports the backup directory. `Restore-LocalInstall.ps1` can restore that installation; it does not roll back Steam's game update.
 
 If startup reports **Ability Draft addon mounting is disabled**, the game update or a mod manager removed `Game citadel/addons` from `game/citadel/gameinfo.gi`. With Deadlock and the local servers closed, rerun `Integration/Install-LocalAddon.ps1` and then `Integration/Test-LocalClient.ps1`. The installer restores that search path while preserving current game paths and unrelated addons. Rebuilding the package alone does not install it, and restoring an old complete `gameinfo.gi` could discard changes from the game update. A passing client check verifies the mounted package; both hubs must also become ready to verify the native Deadworks installation.
 

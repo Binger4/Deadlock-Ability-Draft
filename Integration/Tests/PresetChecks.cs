@@ -8,6 +8,8 @@ static class PresetChecks
         var clock = new Clock();
         var service = new PresetTransferService(clock);
         var json = CustomDraftPresetService.Export(new() { DraftMode = abilitydraft.Models.DraftMode.Custom });
+        var shuffleJson = CustomDraftPresetService.Export(new() { DraftMode = abilitydraft.Models.DraftMode.Custom, AbilityDraftShuffle = true });
+        Check(shuffleJson.Contains("\"abilityDraftShuffle\": true"), "Custom preset exports preserve the Shuffle checkbox");
         var export = service.Create(json);
         Check(service.IsDownload(export) && service.Download(export) == json, "Preset download preserves the original export JSON");
         var upload = service.Create();

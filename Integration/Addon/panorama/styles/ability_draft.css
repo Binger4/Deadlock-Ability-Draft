@@ -41,3 +41,7 @@ TextEntry { width: 200px; height: 34px; margin-right: 6px; background-color: #0b
 .Chat Label { width: 100%; font-size: 14px; white-space: normal; margin-bottom: 4px; }
 #ChatInput { width: fill-parent-flow(1); }
 #Recommendation { background-color: #273847; padding: 8px; }
+/* Complete skill-set handoff in the native fallback draft screen. */
+.ShuffleAssignment { color: #cfb2ff; font-size: 15px; margin-top: 6px; }
+.Loadout { transition-property: opacity, transform; transition-duration: 0.8s; }
+.Loadout.ShuffleDealing { opacity: 0; transform: translateX(-70px); }

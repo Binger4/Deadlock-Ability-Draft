@@ -1,6 +1,7 @@
 using AbilityDraft.Runtime;
 using AbilityDraft.Contracts;
 using DeadworksManaged.Api;
+using AbilityDraft.Gameplay;
 
 namespace AbilityDraft.Deadworks;
 
@@ -95,8 +96,13 @@ public sealed class DeadworksRuntime : IGameDraftRuntime
             pawn.HeroID.ToHeroName() == heroKey && pawn.TeamNum == Team(team);
     }
     public RuntimeAbility[] SignatureAbilities(string steam) => Pawn(steam).AbilityComponent.Abilities
-        .Where(a => a.IsSignature).Select(a => new RuntimeAbility((int)a.AbilitySlot + 1, a.AbilityName, NativeAbilityProgress.Read(a))).ToArray();
-    public bool RemoveAbility(string steam, string key) => Pawn(steam).RemoveAbility(key);
+        .Where(a => a.IsSignature).Select(a => new RuntimeAbility((int)a.AbilitySlot + 1, DraftedAlternateFire.OriginalKey(a.AbilityName), NativeAbilityProgress.Read(a))).ToArray();
+    public bool RemoveAbility(string steam, string key)
+    {
+        var pawn = Pawn(steam);
+        var actual = pawn.AbilityComponent.Abilities.FirstOrDefault(a => a.IsSignature && DraftedAlternateFire.OriginalKey(a.AbilityName) == key);
+        return pawn.RemoveAbility(actual?.AbilityName ?? key);
+    }
     public bool AddAbility(string steam, RuntimeAbility ability)
     {
         if (ability.Slot is < 1 or > 4) throw new InvalidOperationException("Invalid slot.");
@@ -117,6 +123,8 @@ public sealed class DeadworksRuntime : IGameDraftRuntime
     public void SetStartingProgression(string steam)
     {
         var pawn = Pawn(steam);
+        DraftedAlternateFire.Apply(pawn);
+        foreach (var ability in pawn.AbilityComponent.Abilities.Where(a => a.IsSignature)) NativeAbilityProgress.BindDraftedSlot(ability);
         pawn.Level = 1;
         pawn.SetCurrency(ECurrencyType.EAbilityUnlocks, 0);
         foreach (var ability in pawn.AbilityComponent.Abilities.Where(a => a.IsSignature)) ability.CanBeUpgraded = false;
