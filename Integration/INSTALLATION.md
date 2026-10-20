@@ -65,6 +65,8 @@ The first run restores NuGet packages, builds the application and downloads the 
 
 Press Ctrl+C when finished. Do this initial data setup before using the local game-server shortcut, which disables automatic data updates during gameplay. Public hosting uses [HOSTING.md](HOSTING.md#backend-configuration) for HTTPS, secrets, game paths and ports.
 
+Both `dotnet run` and `dotnet publish -c Release -o publish` build the gameplay export companion and include its localization templates automatically, including on a fresh checkout. The first build downloads a pinned official Deadworks API reference and the pinned GameTracking English localization fallback; subsequent builds reuse the cached downloads and retain locally prepared translations. This preparation does not require an installed game, PowerShell or the native packing tools. Deploy the complete publish output folder. Native VPK packing still requires the CSDK tools below.
+
 ## Build tools
 
 These files are not downloaded by `dotnet build` or included in a fresh checkout. `Tools` below means the folder **inside this repository**, not inside the Steam game. Prepare the following layout:

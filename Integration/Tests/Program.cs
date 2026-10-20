@@ -1,4 +1,5 @@
 using System.Net;
+using System.IO.Compression;
 using System.Net.Http.Json;
 using System.Text.Json;
 using AbilityDraft.Contracts;
@@ -224,7 +225,11 @@ await RejectAsync(() => backend.Command(host, new("reorder", Slot: hostSlot.Slot
 await RejectAsync(() => backend.Result(spectator, ct), "Spectators cannot retrieve Steam identity results");
 var files = new ModFileGenerator().Generate(room);
 var zip = new ZipExportService().CreateZip(files);
-Check(zip.Length > 0 && files.Count == 2, "Existing VData and ZIP generation still works after runtime finalization");
+using (var generatedArchive = new ZipArchive(new MemoryStream(zip)))
+    Check(generatedArchive.Entries.Count == files.Count &&
+        generatedArchive.GetEntry("scripts/heroes.vdata") is { Length: > 0 } &&
+        generatedArchive.GetEntry("scripts/abilities.vdata") is { Length: > 0 },
+        "Finalized drafts export both VData files and every required companion/localization file into a valid ZIP");
 await RejectAsync(() => backend.GenerateArchive(spectator, ct), "Spectator cannot generate or download the draft archive");
 await RejectAsync(() => backend.GenerateArchive(other, ct), "Non-host cannot trigger compilation");
 var archive = await backend.GenerateArchive(host, ct);

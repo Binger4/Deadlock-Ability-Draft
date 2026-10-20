@@ -2697,14 +2697,14 @@ public sealed class ModFileGenerator(IWebHostEnvironment? environment = null)
 
         if (DraftTurnService.ActiveSlots(room).SelectMany(p => p.Loadout.PickedAbilityKeys()).Contains(DraftedHeroCompatibility.LivingInk))
             files.AddRange(AbilityVariantLocalisation.Generate(
-                Path.Combine(environment?.ContentRootPath ?? Directory.GetCurrentDirectory(), "Integration/dist/localization"), abilitiesDocument.Root.Keys));
+                ExportAssetPath("Integration/dist/localization"), abilitiesDocument.Root.Keys));
 
         if (DraftTurnService.ActiveSlots(room).SelectMany(p => p.Loadout.PickedAbilityKeys()).Any(key =>
             key is "ability_deadpack_rocketeer" or "ability_deadpack_flamethrower" or DraftedHeroCompatibility.LivingInk))
         {
-            var companion = Path.Combine(environment?.ContentRootPath ?? Directory.GetCurrentDirectory(), "Integration/dist/gameplay/AbilityDraft.Gameplay.dll");
+            var companion = ExportAssetPath("Integration/dist/gameplay/AbilityDraft.Gameplay.dll");
             if (!File.Exists(companion))
-                throw new InvalidOperationException("Denny's abilities and Living Ink require the host gameplay companion. Run Integration/Build-Gameplay.ps1 before generating this draft.");
+                throw new InvalidOperationException("The server is missing its gameplay export companion. Rebuild the website with dotnet build or dotnet publish and keep the complete output folder.");
             files.Add(new("host/managed/plugins/AbilityDraft.Gameplay.dll", "", File.ReadAllBytes(companion)));
             files.Add(new("HOST-SETUP.txt", """
                 Ability Draft gameplay compatibility — Deadlock build 6794, Deadworks 0.6.1
@@ -2726,6 +2726,12 @@ public sealed class ModFileGenerator(IWebHostEnvironment? environment = null)
         }
 
         return files;
+    }
+
+    private string ExportAssetPath(string relativePath)
+    {
+        var contentPath = Path.Combine(environment?.ContentRootPath ?? Directory.GetCurrentDirectory(), relativePath);
+        return File.Exists(contentPath) || Directory.Exists(contentPath) ? contentPath : Path.Combine(AppContext.BaseDirectory, relativePath);
     }
 
     private static IReadOnlyList<string> SlotAbilities(DraftRoom room, DraftPlayerSlot player, Kv3Document abilitiesDocument)

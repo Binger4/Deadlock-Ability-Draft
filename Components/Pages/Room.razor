@@ -376,6 +376,10 @@ else
                         <button class="primary" disabled="@IsGeneratingFiles" @onclick="GenerateZip">
                             @(IsGeneratingFiles ? "Generating..." : "Generate files")
                         </button>
+                        @if (!string.IsNullOrWhiteSpace(GenerationError))
+                        {
+                            <p class="message danger-message" role="alert">@GenerationError</p>
+                        }
                     }
                     @if (CurrentRoom.GeneratedZip is not null && !HasUsableGeneratedVpk)
                     {
@@ -508,6 +512,7 @@ else
     private int? DragSlotNumber;
     private int? DragFromIndex;
     private bool IsGeneratingFiles;
+    private string GenerationError = string.Empty;
     private bool ShowGameRootModal;
     private bool ShowInstallInstructions;
     private string GameRootPathInput = string.Empty;
@@ -617,6 +622,7 @@ else
 
     protected override void OnParametersSet()
     {
+        if (CurrentRoom?.Code != Code) GenerationError = string.Empty;
         if (Nav.Uri.Contains("/draft", StringComparison.OrdinalIgnoreCase))
         {
             SuppressDisconnectOnDispose = false;
@@ -781,92 +787,56 @@ else
                 .Where(client => client.Team == DeadlockTeam.Spectator)
                 .OrderBy(client => client.DisplayName, StringComparer.OrdinalIgnoreCase);
 
-    private RenderFragment LobbyTeam(DeadlockTeam team) => builder =>
+    private RenderFragment LobbyTeam(DeadlockTeam team)
     {
         var clients = TeamClients(team).ToList();
-        var sequence = 0;
-        builder.OpenElement(sequence++, "section");
-        builder.AddAttribute(sequence++, "class", $"lobby-team {TeamCssClass(team)}");
-        builder.OpenElement(sequence++, "h2");
-        builder.AddAttribute(sequence++, "class", $"team-heading {TeamCssClass(team)}");
-        builder.AddContent(sequence++, $"{TeamName(team)} ({clients.Count})");
-        builder.CloseElement();
-        if (clients.Count == 0)
-        {
-            builder.OpenElement(sequence++, "p");
-            builder.AddAttribute(sequence++, "class", "message");
-            builder.AddContent(sequence++, "No players yet.");
-            builder.CloseElement();
-        }
-
-        foreach (var client in clients)
-        {
-            builder.OpenElement(sequence++, "article");
-            builder.AddAttribute(sequence++, "class", "lobby-player-card");
-            builder.OpenElement(sequence++, "strong");
-            builder.AddContent(sequence++, client.DisplayName);
-            builder.CloseElement();
-            builder.OpenElement(sequence++, "span");
-            builder.AddAttribute(sequence++, "class", client.IsReady ? "ready-text" : "not-ready-text");
-            builder.AddContent(sequence++, client.IsReady ? "Ready" : "Not Ready");
-            builder.CloseElement();
-            if (client.IsHost && CurrentRoom?.IsPublicQueue != true)
+        return @<section class="lobby-team @TeamCssClass(team)">
+            <h2 class="team-heading @TeamCssClass(team)">@TeamName(team) (@clients.Count)</h2>
+            @if (clients.Count == 0)
             {
-                builder.OpenElement(sequence++, "small");
-                builder.AddContent(sequence++, "Host");
-                builder.CloseElement();
+                <p class="message">No players yet.</p>
             }
-            if (IsHost && !client.IsHost)
+            @foreach (var client in clients)
             {
-                builder.OpenElement(sequence++, "button");
-                builder.AddAttribute(sequence++, "class", "kick-button");
-                builder.AddAttribute(sequence++, "onclick", EventCallback.Factory.Create(this, () => KickPlayer(client.PlayerId)));
-                builder.AddContent(sequence++, "Kick");
-                builder.CloseElement();
+                <article class="lobby-player-card" @key="client.PlayerId">
+                    <strong>@client.DisplayName</strong>
+                    <span class="@(client.IsReady ? "ready-text" : "not-ready-text")">@(client.IsReady ? "Ready" : "Not Ready")</span>
+                    @if (client.IsHost && CurrentRoom?.IsPublicQueue != true)
+                    {
+                        <small>Host</small>
+                    }
+                    @if (IsHost && !client.IsHost)
+                    {
+                        <button class="kick-button" @onclick="() => KickPlayer(client.PlayerId)">Kick</button>
+                    }
+                </article>
             }
-            builder.CloseElement();
-        }
-        builder.CloseElement();
-    };
+        </section>;
+    }
 
-    private RenderFragment LobbySpectators() => builder =>
+    private RenderFragment LobbySpectators()
     {
         var spectators = SpectatorClients().ToList();
-        var sequence = 0;
-        builder.OpenElement(sequence++, "section");
-        builder.AddAttribute(sequence++, "class", "lobby-spectator-strip");
-        builder.OpenElement(sequence++, "strong");
-        builder.AddContent(sequence++, $"Spectators ({spectators.Count})");
-        builder.CloseElement();
-        builder.OpenElement(sequence++, "div");
-        if (spectators.Count == 0)
-        {
-            builder.OpenElement(sequence++, "span");
-            builder.AddAttribute(sequence++, "class", "message");
-            builder.AddContent(sequence++, "No spectators yet.");
-            builder.CloseElement();
-        }
-
-        foreach (var spectator in spectators)
-        {
-            builder.OpenElement(sequence++, "span");
-            builder.AddAttribute(sequence++, "class", $"spectator-chip{(spectator.IsConnected ? string.Empty : " disconnected")}");
-            builder.AddContent(sequence++, spectator.DisplayName);
-            if (IsHost)
-            {
-                builder.OpenElement(sequence++, "button");
-                builder.AddAttribute(sequence++, "class", "kick-button compact-spectator-kick");
-                builder.AddAttribute(sequence++, "onclick", EventCallback.Factory.Create(this, () => KickPlayer(spectator.PlayerId)));
-                builder.AddContent(sequence++, "Kick");
-                builder.CloseElement();
-            }
-
-            builder.CloseElement();
-        }
-
-        builder.CloseElement();
-        builder.CloseElement();
-    };
+        return @<section class="lobby-spectator-strip">
+            <strong>Spectators (@spectators.Count)</strong>
+            <div>
+                @if (spectators.Count == 0)
+                {
+                    <span class="message">No spectators yet.</span>
+                }
+                @foreach (var spectator in spectators)
+                {
+                    <span class="spectator-chip @(spectator.IsConnected ? "" : "disconnected")" @key="spectator.PlayerId">
+                        @spectator.DisplayName
+                        @if (IsHost)
+                        {
+                            <button class="kick-button compact-spectator-kick" @onclick="() => KickPlayer(spectator.PlayerId)">Kick</button>
+                        }
+                    </span>
+                }
+            </div>
+        </section>;
+    }
 
     private RenderFragment LobbyCustomSettingsPanel() => @<section class="custom-settings-panel compact-custom-settings">
         <div class="custom-settings-header">
@@ -1122,39 +1092,27 @@ else
         }
     }
 
-    private RenderFragment HeroDraftBlock(HeroDraftGroup block) => builder =>
+    private RenderFragment HeroDraftBlock(HeroDraftGroup block)
     {
         var heroPicked = CurrentRoom?.PickedHeroKeys.Contains(block.Hero.Key) == true;
         var canPickHero = CurrentRoom is not null && RoomService.CanPlayerPickKey(CurrentRoom, PlayerId, block.Hero.Key);
-        var sequence = 0;
-        builder.OpenElement(sequence++, "article");
-        builder.AddAttribute(sequence++, "class", $"draft-hero-block{(heroPicked ? " picked" : string.Empty)}");
+        return @<article class="draft-hero-block @(heroPicked ? "picked" : "")" @key="block.Hero.Key">
+            <button class="draft-hero-card @(heroPicked ? "picked" : "")" disabled="@(!canPickHero)" title="@block.Hero.Key"
+                    @onclick="() => Pick(block.Hero.Key)"
+                    @oncontextmenu="args => OpenDraftItemMenu(args, block.Hero.Key, block.Hero.DisplayName, false)" @oncontextmenu:preventDefault="true">
+                @HeroIcon(block.Hero)
+                <span>@block.Hero.DisplayName</span>
+            </button>
+            <div class="block-ability-grid">
+                @foreach (var entry in block.Abilities)
+                {
+                    @AbilityTile(entry.Ability, entry.PoolItem, hideIdentity: ShouldHideAbilityIdentity(entry.Ability))
+                }
+            </div>
+        </article>;
+    }
 
-        builder.OpenElement(sequence++, "button");
-        builder.AddAttribute(sequence++, "class", $"draft-hero-card{(heroPicked ? " picked" : string.Empty)}");
-        builder.AddAttribute(sequence++, "disabled", !canPickHero);
-        builder.AddAttribute(sequence++, "title", block.Hero.Key);
-        builder.AddAttribute(sequence++, "onclick", EventCallback.Factory.Create(this, () => Pick(block.Hero.Key)));
-        builder.AddAttribute(sequence++, "oncontextmenu", EventCallback.Factory.Create<MouseEventArgs>(this, args => OpenDraftItemMenu(args, block.Hero.Key, block.Hero.DisplayName, false)));
-        builder.AddEventPreventDefaultAttribute(sequence++, "oncontextmenu", true);
-        HeroIcon(block.Hero)(builder);
-        builder.OpenElement(sequence++, "span");
-        builder.AddContent(sequence++, block.Hero.DisplayName);
-        builder.CloseElement();
-        builder.CloseElement();
-
-        builder.OpenElement(sequence++, "div");
-        builder.AddAttribute(sequence++, "class", "block-ability-grid");
-        foreach (var entry in block.Abilities)
-        {
-            AbilityTile(entry.Ability, entry.PoolItem, hideIdentity: ShouldHideAbilityIdentity(entry.Ability))(builder);
-        }
-        builder.CloseElement();
-
-        builder.CloseElement();
-    };
-
-    private RenderFragment PlayerPanel(DraftPlayerSlot player) => builder =>
+    private RenderFragment PlayerPanel(DraftPlayerSlot player)
     {
         var hero = CurrentRoom?.DeadlockData.Heroes.FirstOrDefault(item => item.Key == player.HeroKey);
         var isTurn = CurrentRoom?.CurrentTurn?.SlotNumber == player.SlotNumber;
@@ -1163,111 +1121,57 @@ else
                                !string.IsNullOrWhiteSpace(PlayerId) &&
                                string.Equals(player.PlayerId, PlayerId, StringComparison.Ordinal);
         var canReorder = CurrentRoom is not null && RoomService.CanPlayerReorderSlot(CurrentRoom, PlayerId, player);
-        var sequence = 0;
-        builder.OpenElement(sequence++, "article");
-        builder.AddAttribute(sequence++, "class", $"player-panel {TeamCssClass(player.Team)}{(isTurn ? " active" : string.Empty)}");
-        builder.OpenElement(sequence++, "div");
-        builder.AddAttribute(sequence++, "class", $"hero-portrait{(player.IsDisconnected ? " disconnected" : string.Empty)}");
-        if (!string.IsNullOrWhiteSpace(hero?.IconDataUrl))
-        {
-            builder.OpenElement(sequence++, "img");
-            builder.AddAttribute(sequence++, "src", hero.IconDataUrl);
-            builder.AddAttribute(sequence++, "alt", hero.DisplayName);
-            builder.CloseElement();
-        }
-        else
-        {
-            builder.OpenElement(sequence++, "span");
-            builder.AddContent(sequence++, "?");
-            builder.CloseElement();
-        }
-        if (player.IsDisconnected)
-        {
-            builder.OpenElement(sequence++, "img");
-            builder.AddAttribute(sequence++, "class", "disconnect-overlay");
-            builder.AddAttribute(sequence++, "src", "/icons/disconnected.svg");
-            builder.AddAttribute(sequence++, "alt", "Disconnected");
-            builder.CloseElement();
-        }
-        builder.CloseElement();
-
-        builder.OpenElement(sequence++, "div");
-        builder.AddAttribute(sequence++, "class", "player-info");
-        builder.OpenElement(sequence++, "strong");
-        builder.AddContent(sequence++, HeroName(player.HeroKey).ToUpperInvariant());
-        builder.CloseElement();
-        builder.OpenElement(sequence++, "span");
-        if (isLocalOwnedTurn)
-        {
-            builder.AddAttribute(sequence++, "class", "own-turn-name");
-        }
-        builder.AddAttribute(sequence++, "oncontextmenu", EventCallback.Factory.Create<MouseEventArgs>(this, args => OpenPlayerMenu(args, player.PlayerId, player.NameOrFallback)));
-        builder.AddEventPreventDefaultAttribute(sequence++, "oncontextmenu", true);
-        builder.AddContent(sequence++, player.NameOrFallback);
-        builder.CloseElement();
-        builder.OpenElement(sequence++, "small");
-        builder.AddAttribute(sequence++, "class", "player-meta");
-        builder.OpenElement(sequence++, "span");
-        builder.AddAttribute(sequence++, "class", TeamTextClass(player.Team));
-        builder.AddContent(sequence++, $"{player.TeamName()} {player.TeamIndex()}");
-        builder.CloseElement();
-        builder.AddContent(sequence++, $" - {PlayerConnectionLabel(player)}");
-        builder.CloseElement();
-        builder.OpenElement(sequence++, "div");
-        builder.AddAttribute(sequence++, "class", "slot-row");
-        foreach (var abilitySlot in AbilitySlots(player))
-        {
-            var abilityKey = abilitySlot.Key;
-            var ability = CurrentRoom?.DeadlockData.Abilities.FirstOrDefault(item => item.Key == abilityKey);
-            var hideAbility = ability is not null && ShouldHideAbilityIdentity(ability);
-            var hasAbility = !string.IsNullOrWhiteSpace(abilityKey);
-            var isNormalSlot = !abilitySlot.IsUltimate;
-            var canDrop = canReorder && isNormalSlot;
-            var canDrag = canDrop && hasAbility;
-            var isDragging = DragSlotNumber == player.SlotNumber && DragFromIndex == abilitySlot.Index;
-            builder.OpenElement(sequence++, "div");
-            builder.AddAttribute(sequence++, "class", MiniSlotClass(hasAbility, abilitySlot.IsUltimate, canDrag, canDrop, isDragging));
-            builder.AddAttribute(sequence++, "title", canDrag ? "Drag to reorder normal abilities" : abilitySlot.IsUltimate ? "Ultimate is locked to slot 4" : "Ability slot");
-            if (canDrag)
-            {
-                builder.AddAttribute(sequence++, "draggable", "true");
-                builder.AddAttribute(sequence++, "ondragstart", EventCallback.Factory.Create(this, () => StartAbilityDrag(player.SlotNumber, abilitySlot.Index)));
-                builder.AddAttribute(sequence++, "ondragend", EventCallback.Factory.Create(this, EndAbilityDrag));
-            }
-
-            if (canDrop)
-            {
-                builder.AddAttribute(sequence++, "ondragover", EventCallback.Factory.Create(this, () => { }));
-                builder.AddEventPreventDefaultAttribute(sequence++, "ondragover", true);
-                builder.AddEventPreventDefaultAttribute(sequence++, "ondrop", true);
-                builder.AddAttribute(sequence++, "ondrop", EventCallback.Factory.Create(this, () => DropAbility(player.SlotNumber, abilitySlot.Index)));
-            }
-
-            builder.OpenElement(sequence++, "span");
-            builder.AddAttribute(sequence++, "class", "slot-label");
-            builder.AddContent(sequence++, abilitySlot.Label);
-            builder.CloseElement();
-            if (hideAbility)
-            {
-                builder.OpenElement(sequence++, "img");
-                builder.AddAttribute(sequence++, "src", "/icons/hidden-icon.png");
-                builder.AddAttribute(sequence++, "alt", "Hidden ability");
-                builder.CloseElement();
-            }
-            else if (!string.IsNullOrWhiteSpace(ability?.IconDataUrl))
-            {
-                builder.OpenElement(sequence++, "img");
-                builder.AddAttribute(sequence++, "src", ability.IconDataUrl);
-                builder.AddAttribute(sequence++, "alt", ability.DisplayName);
-                builder.CloseElement();
-            }
-            builder.CloseElement();
-        }
-        builder.CloseElement();
-
-        builder.CloseElement();
-        builder.CloseElement();
-    };
+        return @<article class="player-panel @TeamCssClass(player.Team) @(isTurn ? "active" : "")" @key="player.SlotNumber">
+            <div class="hero-portrait @(player.IsDisconnected ? "disconnected" : "")">
+                @if (!string.IsNullOrWhiteSpace(hero?.IconDataUrl))
+                {
+                    <img src="@hero.IconDataUrl" alt="@hero.DisplayName" />
+                }
+                else
+                {
+                    <span>?</span>
+                }
+                @if (player.IsDisconnected)
+                {
+                    <img class="disconnect-overlay" src="/icons/disconnected.svg" alt="Disconnected" />
+                }
+            </div>
+            <div class="player-info">
+                <strong>@HeroName(player.HeroKey).ToUpperInvariant()</strong>
+                <span class="@(isLocalOwnedTurn ? "own-turn-name" : null)"
+                      @oncontextmenu="args => OpenPlayerMenu(args, player.PlayerId, player.NameOrFallback)" @oncontextmenu:preventDefault="true">@player.NameOrFallback</span>
+                <small class="player-meta"><span class="@TeamTextClass(player.Team)">@player.TeamName() @player.TeamIndex()</span> - @PlayerConnectionLabel(player)</small>
+                <div class="slot-row">
+                    @foreach (var abilitySlot in AbilitySlots(player))
+                    {
+                        var abilityKey = abilitySlot.Key;
+                        var ability = CurrentRoom?.DeadlockData.Abilities.FirstOrDefault(item => item.Key == abilityKey);
+                        var hideAbility = ability is not null && ShouldHideAbilityIdentity(ability);
+                        var hasAbility = !string.IsNullOrWhiteSpace(abilityKey);
+                        var canDrop = canReorder && !abilitySlot.IsUltimate;
+                        var canDrag = canDrop && hasAbility;
+                        var isDragging = DragSlotNumber == player.SlotNumber && DragFromIndex == abilitySlot.Index;
+                        <div class="@MiniSlotClass(hasAbility, abilitySlot.IsUltimate, canDrag, canDrop, isDragging)" @key="abilitySlot.Index"
+                             title="@(canDrag ? "Drag to reorder normal abilities" : abilitySlot.IsUltimate ? "Ultimate is locked to slot 4" : "Ability slot")"
+                             draggable="@(canDrag ? "true" : null)"
+                             @ondragstart="() => { if (canDrag) StartAbilityDrag(player.SlotNumber, abilitySlot.Index); }"
+                             @ondragend="EndAbilityDrag" @ondragover="() => { }" @ondragover:preventDefault="canDrop"
+                             @ondrop="() => { if (canDrop) DropAbility(player.SlotNumber, abilitySlot.Index); }" @ondrop:preventDefault="canDrop">
+                            <span class="slot-label">@abilitySlot.Label</span>
+                            @if (hideAbility)
+                            {
+                                <img src="/icons/hidden-icon.png" alt="Hidden ability" />
+                            }
+                            else if (!string.IsNullOrWhiteSpace(ability?.IconDataUrl))
+                            {
+                                <img src="@ability.IconDataUrl" alt="@ability.DisplayName" />
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </article>;
+    }
 
     private RenderFragment HeroIcon(HeroDefinition hero) => builder =>
     {
@@ -1298,7 +1202,7 @@ else
         }
     };
 
-    private RenderFragment AbilityTile(AbilityDefinition ability, DraftAbilityPoolItem? poolItem, bool hideIdentity = false) => builder =>
+    private RenderFragment AbilityTile(AbilityDefinition ability, DraftAbilityPoolItem? poolItem, bool hideIdentity = false)
     {
         var picked = CurrentRoom?.PickedAbilityKeys.Contains(ability.Key) == true;
         var showPickedAsTaken = picked && CurrentRoom?.Config.AllowDuplicateAbilities != true;
@@ -1310,41 +1214,24 @@ else
             : poolItem?.IsReplacement == true
                 ? $"{ability.DisplayName} | {ability.Key} | Replacement: {poolItem.ReplacementReason} | Source: {ability.SourceHeroName}"
                 : $"{ability.DisplayName} | {ability.Key} | {ability.SourceHeroName} {ability.SourceSlot}";
-        var sequence = 0;
-        builder.OpenElement(sequence++, "button");
-        builder.AddAttribute(sequence++, "class", $"ability-tile grouped{(showPickedAsTaken ? " picked" : string.Empty)}{(poolItem?.IsReplacement == true ? " replacement" : string.Empty)}{(ability.PickKind == DraftPickKind.UltimateAbility ? " ultimate" : string.Empty)}{(hideIdentity ? " blind-hidden" : string.Empty)}");
-        builder.AddAttribute(sequence++, "disabled", !canPick);
-        builder.AddAttribute(sequence++, "title", title);
-        builder.AddAttribute(sequence++, "onclick", EventCallback.Factory.Create(this, () => Pick(ability.Key)));
-        builder.AddAttribute(sequence++, "oncontextmenu", EventCallback.Factory.Create<MouseEventArgs>(this, args => OpenDraftItemMenu(args, ability.Key, displayName, hideIdentity)));
-        builder.AddEventPreventDefaultAttribute(sequence++, "oncontextmenu", true);
-        if (!string.IsNullOrWhiteSpace(icon))
-        {
-            builder.OpenElement(sequence++, "img");
-            builder.AddAttribute(sequence++, "src", icon);
-            builder.AddAttribute(sequence++, "alt", displayName);
-            builder.CloseElement();
-        }
-        else
-        {
-            builder.OpenElement(sequence++, "span");
-            builder.AddAttribute(sequence++, "class", "icon-placeholder");
-            builder.AddContent(sequence++, Initials(displayName));
-            builder.CloseElement();
-        }
-        if (showPickedAsTaken)
-        {
-            builder.OpenElement(sequence++, "span");
-            builder.AddAttribute(sequence++, "class", "picked-cross");
-            builder.AddAttribute(sequence++, "aria-hidden", "true");
-            builder.AddContent(sequence++, "X");
-            builder.CloseElement();
-        }
-        builder.OpenElement(sequence++, "small");
-        builder.AddContent(sequence++, displayName);
-        builder.CloseElement();
-        builder.CloseElement();
-    };
+        return @<button class="@($"ability-tile grouped{(showPickedAsTaken ? " picked" : "")}{(poolItem?.IsReplacement == true ? " replacement" : "")}{(ability.PickKind == DraftPickKind.UltimateAbility ? " ultimate" : "")}{(hideIdentity ? " blind-hidden" : "")}")"
+                        @key="ability.Key" disabled="@(!canPick)" title="@title" @onclick="() => Pick(ability.Key)"
+                        @oncontextmenu="args => OpenDraftItemMenu(args, ability.Key, displayName, hideIdentity)" @oncontextmenu:preventDefault="true">
+            @if (!string.IsNullOrWhiteSpace(icon))
+            {
+                <img src="@icon" alt="@displayName" />
+            }
+            else
+            {
+                <span class="icon-placeholder">@Initials(displayName)</span>
+            }
+            @if (showPickedAsTaken)
+            {
+                <span class="picked-cross" aria-hidden="true">X</span>
+            }
+            <small>@displayName</small>
+        </button>;
+    }
 
     private RenderFragment ChatPanel() => @<section class="draft-chat-panel @(ChatCollapsed ? "collapsed" : string.Empty)">
         <div class="chat-panel-header">
@@ -1717,6 +1604,7 @@ else
         try
         {
             IsGeneratingFiles = true;
+            GenerationError = string.Empty;
             SetMessage("Generating files...", autoClear: false);
             var packingStatus = DeadPackerService.GetStatus();
             if (packingStatus.Enabled && !packingStatus.GameRootValid)
@@ -1735,6 +1623,7 @@ else
         }
         catch (Exception ex)
         {
+            GenerationError = ex.Message;
             SetMessage(ex.Message);
         }
         finally

@@ -41,7 +41,8 @@ public static partial class AbilityVariantLocalisation
     public static IEnumerable<GeneratedModFile> Generate(string templatesDirectory, IEnumerable<string> abilityKeys)
     {
         var directory = Path.Combine(templatesDirectory, ResourcePath.Replace('/', Path.DirectorySeparatorChar));
-        if (!Directory.Exists(directory)) throw new InvalidOperationException("Missing gameplay localization templates. Rebuild Integration/Build-BaseAddon.ps1 before exporting Living Ink.");
+        if (!File.Exists(Path.Combine(directory, "citadel_heroes_english.txt")))
+            throw new InvalidOperationException("The server is missing its gameplay localization templates. Rebuild the website with dotnet build or dotnet publish and keep the complete output folder.");
         var keys = abilityKeys.ToArray();
         foreach (var path in Directory.EnumerateFiles(directory, "citadel_heroes_*.txt").Order(StringComparer.Ordinal))
             yield return new(ResourcePath + Path.GetFileName(path), AddAliases(File.ReadAllText(path), keys));

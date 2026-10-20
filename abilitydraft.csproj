@@ -5,6 +5,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
+    <DefaultItemExcludes>$(DefaultItemExcludes);publish/**</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>
@@ -21,8 +22,27 @@
 
   <ItemGroup>
     <Content Include="Integration\dist\ability_draft_base.vpk" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="Exists('Integration\dist\ability_draft_base.vpk')" />
-    <Content Include="Integration\dist\gameplay\AbilityDraft.Gameplay.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="Exists('Integration\dist\gameplay\AbilityDraft.Gameplay.dll')" />
-    <Content Include="Integration\dist\localization\**\*.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
+
+  <!-- Prepare before content discovery for both dotnet run/build and publish.
+       These files do not exist when a fresh checkout is first evaluated. -->
+  <Target Name="PrepareGameplayExportAssets" BeforeTargets="AssignTargetPaths">
+    <Exec Condition="'$(DesignTimeBuild)' != 'true'" Command="dotnet run --project &quot;$(MSBuildProjectDirectory)/Integration/ExportAssets/AbilityDraft.ExportAssets.csproj&quot; --configuration &quot;$(Configuration)&quot; -- &quot;$(MSBuildProjectDirectory)&quot; &quot;$(Configuration)&quot;" />
+    <ItemGroup>
+      <Content Include="$(MSBuildProjectDirectory)/Integration/dist/gameplay/AbilityDraft.Gameplay.dll" Condition="Exists('$(MSBuildProjectDirectory)/Integration/dist/gameplay/AbilityDraft.Gameplay.dll')">
+        <Link>Integration/dist/gameplay/AbilityDraft.Gameplay.dll</Link>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+        <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+      </Content>
+      <_GameplayExportLocalisation Include="$(MSBuildProjectDirectory)/Integration/dist/localization/**/*.txt" />
+      <Content Include="@(_GameplayExportLocalisation)">
+        <Link>Integration/dist/localization/%(_GameplayExportLocalisation.RecursiveDir)%(_GameplayExportLocalisation.Filename)%(_GameplayExportLocalisation.Extension)</Link>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+        <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+      </Content>
+    </ItemGroup>
+  </Target>
 
 </Project>

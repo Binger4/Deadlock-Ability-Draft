@@ -8,6 +8,8 @@ static class HeroGameplayChecks
     public static void Run(ParsedDeadlockData data, DeadPackerService? packer = null)
     {
         CheckInkLocalisation();
+        CheckReportedShuffleExport(data, packer);
+        CheckAllHeroShuffleExports(data);
         var resources = DraftedHeroCompatibility.GameplayResources(data.AbilitiesDocument);
         Check(resources.Contains("particles/abilities/artist/artist_pullbrush.vpcf") &&
             resources.Contains("particles/abilities/airheart/airheart_jetpack_ambient.vpcf") &&
@@ -54,6 +56,64 @@ static class HeroGameplayChecks
             DeadlockFileParser.GetString(final, "ESlot_Signature_1") == "ability_deadpack_flamethrower",
             "Denny's fixes preserve the drafted slots instead of forcing the jetpack into slot 2");
         CheckInkTeams(data, packer);
+    }
+
+    static void CheckReportedShuffleExport(ParsedDeadlockData data, DeadPackerService? packer)
+    {
+        var room = new DraftRoom { DeadlockData = data, Config = new() { DraftMode = DraftMode.Custom, AbilityDraftShuffle = true } };
+        var rat = room.Players[0]; rat.PlayerId = "reported-host"; rat.HeroKey = "hero_ratking";
+        var denny = room.Players[1]; denny.PlayerId = "reported-guest"; denny.HeroKey = "hero_deadpack";
+        // These are the original picks, before the two-player shuffle in the report.
+        rat.Loadout.RegularAbilities.AddRange(["ability_deadpack_rocketeer", "ability_unicorn_prismaticguard", "ability_ratking_ratarmor"]);
+        rat.Loadout.Ultimate = "ability_ratking_standard_bearer";
+        denny.Loadout.RegularAbilities.AddRange(["ability_werewolf_unloadgun", "ability_werewolf_netshot", "ability_warden_lock_down"]);
+        denny.Loadout.Ultimate = "ability_deadpack_ultimate";
+        AbilityDraftShuffle.Apply(room);
+        var files = new ModFileGenerator().Generate(room);
+        var heroes = Kv3Parser.Parse(files.Single(f => f.Path == "scripts/heroes.vdata").Content);
+        var bindings = (Kv3Object)((Kv3Object)heroes.Root["hero_deadpack"])["m_mapBoundAbilities"];
+        Check(room.ShuffleAssignments.Count == 2 && DeadlockFileParser.GetString(bindings, "ESlot_Signature_1") == "ability_deadpack_rocketeer",
+            "The reported Rat King/Denny Shuffle draft exports Chimera Mk1 in its assigned slot");
+        using var zip = new ZipArchive(new MemoryStream(new ZipExportService().CreateZip(files)));
+        Check(zip.GetEntry("host/managed/plugins/AbilityDraft.Gameplay.dll") is { Length: > 1000 },
+            "The reported Shuffle download includes its required gameplay companion");
+        if (packer is not null)
+        {
+            var packed = packer.TryCreateVpk("REPORTEDSHUFFLE", files);
+            Check(packed.Success && packed.VpkBytes is { Length: > 1000 }, "Native compiler packs the exact reported Shuffle loadout: " + packed.LogPath);
+        }
+    }
+
+    static void CheckAllHeroShuffleExports(ParsedDeadlockData data)
+    {
+        var heroes = data.Heroes.Where(h => !h.Disabled && !h.HeroLabs &&
+            h.DraftableAbilityKeys().All(data.AbilitiesDocument.Root.ContainsKey)).ToArray();
+        foreach (var batch in heroes.Chunk(12))
+        {
+            var room = new DraftRoom { DeadlockData = data, Config = new() { DraftMode = DraftMode.Custom, AbilityDraftShuffle = true } };
+            for (var i = 0; i < batch.Length; i++)
+            {
+                var p = room.Players[i]; var hero = batch[i];
+                p.PlayerId = "all-heroes-" + i; p.HeroKey = hero.Key;
+                p.Loadout.RegularAbilities.AddRange([hero.Ability1, hero.Ability2, hero.Ability3]);
+                p.Loadout.Ultimate = hero.Ultimate;
+            }
+            AbilityDraftShuffle.Apply(room);
+            var files = new ModFileGenerator().Generate(room);
+            var exported = Kv3Parser.Parse(files.Single(f => f.Path == "scripts/heroes.vdata").Content);
+            foreach (var p in room.Players.Take(batch.Length))
+            {
+                var bindings = (Kv3Object)((Kv3Object)exported.Root[p.HeroKey!])["m_mapBoundAbilities"];
+                for (var slot = 1; slot <= 4; slot++)
+                {
+                    var original = slot == 4 ? p.Loadout.Ultimate! : p.Loadout.RegularAbilities[slot - 1];
+                    var actual = DeadlockFileParser.GetString(bindings, "ESlot_Signature_" + slot);
+                    if (actual != original && !(original == DraftedHeroCompatibility.LivingInk && actual.StartsWith(original + "_abilitydraft_", StringComparison.Ordinal)))
+                        throw new Exception($"Incorrect shuffled export for {p.HeroKey}, slot {slot}: {actual}");
+                }
+            }
+        }
+        Check(true, $"Shuffle exports preserve all four assigned skills across every available hero ({heroes.Length} heroes)");
     }
 
     static void CheckInkTeams(ParsedDeadlockData data, DeadPackerService? packer)
