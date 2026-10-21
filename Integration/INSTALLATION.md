@@ -83,10 +83,10 @@ Tools/
     libSkiaSharp.dll
     spirv-cross.dll
   DeadworksRelease/
-    v0.6.1/game/bin/win64/deadworks.exe
-    v0.6.1/game/bin/win64/managed/DeadworksManaged.Api.dll
-    v0.6.1/game/citadel/cfg/deadworks_mem.jsonc
-    source-v0.6.1/Deadworks-net-deadworks-3888df2/client-bootstrap/
+    v0.6.2/game/bin/win64/deadworks.exe
+    v0.6.2/game/bin/win64/managed/DeadworksManaged.Api.dll
+    v0.6.2/game/citadel/cfg/deadworks_mem.jsonc
+    source-v0.6.2/Deadworks-net-deadworks-7b01d7f/client-bootstrap/
 Integration/local/
   deadworks-bootstrap.vpk
   bootstrap-manifest.json
@@ -100,26 +100,26 @@ This project's addon build uses `Tools/Reduced_CSDK_12/game/bin_cs2/win64/resour
 
 ### Source 2 Viewer CLI
 
-Download **[cli-windows-x64.zip from Source 2 Viewer 20.0](https://github.com/ValveResourceFormat/ValveResourceFormat/releases/download/20.0/cli-windows-x64.zip)**; the [release page](https://github.com/ValveResourceFormat/ValveResourceFormat/releases/tag/20.0) also lists it under Assets. Extract the **entire archive** into `Tools/Source2ViewerCLI`.
+Download **[cli-windows-x64.zip from Source 2 Viewer 20.1](https://github.com/ValveResourceFormat/ValveResourceFormat/releases/download/20.1/cli-windows-x64.zip)**; the [release page](https://github.com/ValveResourceFormat/ValveResourceFormat/releases/tag/20.1) also lists it under Assets. Extract the **entire archive** into `Tools/Source2ViewerCLI`.
 
 The required executable is `Tools/Source2ViewerCLI/Source2Viewer-CLI.exe`. The separate graphical `Source2Viewer.exe` download does not satisfy the build script. Keep the accompanying DLLs beside the CLI. It extracts the official UI bridge and decompiles the installed game's layouts when rebuilding the player package.
 
 ### Deadworks release and matching source
 
-Download **[deadworks-v0.6.1.zip](https://github.com/Deadworks-net/deadworks/releases/download/v0.6.1/deadworks-v0.6.1.zip)** from the [official release](https://github.com/Deadworks-net/deadworks/releases/tag/v0.6.1). Extract its `game` folder into `Tools/DeadworksRelease/v0.6.1`, retaining every file. This is the build/installer copy; putting it in `Tools` alone does not install it into Deadlock.
+Download **[deadworks-v0.6.2.zip](https://github.com/Deadworks-net/deadworks/releases/download/v0.6.2/deadworks-v0.6.2.zip)** from the [official release](https://github.com/Deadworks-net/deadworks/releases/tag/v0.6.2). Extract its `game` folder into `Tools/DeadworksRelease/v0.6.2`, retaining every file. This is the build/installer copy; putting it in `Tools` alone does not install it into Deadlock.
 
 Download the **matching source separately** for the `client-bootstrap` source and licence notices included with the player package. To obtain the exact directory layout expected by the default build command, run:
 
 ```powershell
 $ErrorActionPreference = 'Stop'
 New-Item -ItemType Directory -Path Tools/Downloads -Force | Out-Null
-Invoke-WebRequest 'https://api.github.com/repos/Deadworks-net/deadworks/zipball/v0.6.1' `
-  -OutFile Tools/Downloads/deadworks-source-v0.6.1.zip
-Expand-Archive Tools/Downloads/deadworks-source-v0.6.1.zip `
-  -DestinationPath Tools/DeadworksRelease/source-v0.6.1 -Force
+Invoke-WebRequest 'https://api.github.com/repos/Deadworks-net/deadworks/zipball/v0.6.2' `
+  -OutFile Tools/Downloads/deadworks-source-v0.6.2.zip
+Expand-Archive Tools/Downloads/deadworks-source-v0.6.2.zip `
+  -DestinationPath Tools/DeadworksRelease/source-v0.6.2 -Force
 ```
 
-Confirm `Tools/DeadworksRelease/source-v0.6.1/Deadworks-net-deadworks-3888df2/client-bootstrap` exists. If you used GitHub's **Source code (zip)** download instead, its outer folder can have a different name; pass that directory with `-DeadworksSourceDirectory` when building. The source archive is not the runnable server release, and neither archive includes the compiled client bridge obtained below.
+Confirm `Tools/DeadworksRelease/source-v0.6.2/Deadworks-net-deadworks-7b01d7f/client-bootstrap` exists. If you used GitHub's **Source code (zip)** download instead, its outer folder can have a different name; pass that directory with `-DeadworksSourceDirectory` when building. The source archive is not the runnable server release, and neither archive includes the compiled client bridge obtained below.
 
 For local hosting, [Install-LocalAddon.ps1](Install-LocalAddon.ps1) copies the complete release from `Tools` into the configured Deadlock installation with backups. For a dedicated server, extract/copy the release's `game` folder into that server's game root and build/install the plugin using [HOSTING.md](HOSTING.md#compile-and-update-on-the-vps). The final server executable must be `<GameRoot>/game/bin/win64/deadworks.exe`, with the release's managed files and `game/citadel/cfg/deadworks_mem.jsonc` alongside their original paths.
 
@@ -202,7 +202,7 @@ Building does not install the VPK. For a public website, build it **before** pub
 | Source2Viewer CLI missing | Extract `cli-windows-x64.zip` into the exact folder above, including its DLLs. |
 | Compiler missing or native DLL load error | Check CSDK's extraction depth, `bin_cs2` path and complete matching DLL set. |
 | `bootstrap-manifest.json` / bridge missing | Complete [Official client bridge](#official-client-bridge); initialization does not download it. |
-| Deadworks API DLL missing during build | Extract the runnable Deadworks release into `Tools/DeadworksRelease/v0.6.1`, or pass `DeadworksManagedDir` as described in HOSTING. |
+| Deadworks API DLL missing during build | Extract the runnable Deadworks release into `Tools/DeadworksRelease/v0.6.2`, or pass `DeadworksManagedDir` as described in HOSTING. |
 | Empty hero/ability catalogue | Finish [Website installation](#website-installation), check GitHub connectivity and press Verify in admin. |
 | Scripts are blocked | Use `pwsh -NoProfile -ExecutionPolicy Bypass -File <script-path>` for a script you have reviewed; this applies to that process. Organization policy may still restrict it. |
 | Game update removed the menu or mounting | Follow [Updating after a game patch](HOSTING.md#updating-after-a-game-patch). Rebuild/install the current package and restore its addon search path. |

@@ -81,6 +81,20 @@ static class DataExportChecks
             "Repeated abilities use distinct complete definitions with their native class and nested modifiers");
         Check(expectedDuplicates.Root.Pairs.All(p => Same(p.Value, duplicated.Root[p.Key])), "Duplicate export cannot overwrite stock or previously generated definitions");
         Check(Kv3Writer.Write(data.AbilitiesDocument) == originalSnapshot, "Generating compatibility variants and duplicates leaves the shared source snapshot unchanged");
+        GameCatalogValidation.VerifyAbilities(data.AbilitiesDocument, exportedAbilities);
+        var staleCatalogue = exportedAbilities.Clone();
+        staleCatalogue.Root.Remove(source);
+        Reject(() => GameCatalogValidation.VerifyAbilities(data.AbilitiesDocument, staleCatalogue),
+            "A compiled full-catalogue override cannot silently omit any current ability");
+        var wrongClass = exportedAbilities.Clone();
+        var classKey = data.AbilitiesDocument.Root.Pairs.First(p => p.Value is Kv3Object obj && DeadlockFileParser.GetString(obj, "_class").Length > 0).Key;
+        ((Kv3Object)wrongClass.Root[classKey]).Set("_class", new Kv3Scalar("obsolete_native_class"));
+        Reject(() => GameCatalogValidation.VerifyAbilities(data.AbilitiesDocument, wrongClass),
+            "A compiled ability cannot silently retain an obsolete native class");
+        Reject(() => GameCatalogValidation.VerifyAbilities(
+            Kv3Parser.Parse("{ ability = { projectile = subclass:{ _class = \"new_projectile\" } } }"),
+            Kv3Parser.Parse("{ ability = { projectile = subclass:{ _class = \"old_projectile\" } } }")),
+            "A stale projectile or modifier subclass is rejected even when the parent ability still exists");
         if (packer is not null)
         {
             var packed = packer.TryCreateVpk("EXPORTREGRESSION", duplicateFiles);

@@ -47,6 +47,9 @@ builder.Services.Configure<Microsoft.AspNetCore.Builder.ForwardedHeadersOptions>
 });
 builder.Services.AddInGameIntegration(builder.Configuration);
 builder.Services.AddHttpClient();
+// The updater reports recoverable network failures once, with local-data status.
+builder.Services.AddHttpClient(nameof(abilitydraft.Services.DeadlockVDataUpdateService))
+    .RemoveAllLoggers();
 builder.Services.AddSingleton<abilitydraft.Services.SiteAccessService>();
 builder.Services.Configure<DeadlockDataOptions>(builder.Configuration.GetSection("DeadlockData"));
 builder.Services.Configure<DeadPackerOptions>(builder.Configuration.GetSection("DeadPacker"));

@@ -44,6 +44,33 @@ static class DraftServerChecks
         Check(supervisor.Status().Single(s => s.Role == "public").Ready, "Drafting readiness requires a fresh plugin heartbeat");
         supervisor.StopAsync(default).GetAwaiter().GetResult();
         Check(host.Processes.All(p => p.HasExited), "Website shutdown stops its owned drafting servers");
+        var incompatibleHost = new Host();
+        using var incompatible = new DraftServerSupervisor(Options.Create(WithState(Path.Combine(temporary, "incompatible"))),
+            Options.Create(new InGameOptions { Enabled = true }), incompatibleHost, NullLogger<DraftServerSupervisor>.Instance);
+        incompatible.Poll(now);
+        File.WriteAllText(Path.Combine(incompatibleHost.Launched[0].Directory, "server.log"),
+            "[bootstrap] Deadlock build 99999 is not supported by this version of Deadworks");
+        incompatibleHost.Processes[0].Stop();
+        incompatible.Poll(now.AddSeconds(2)); incompatible.Poll(now.AddSeconds(8));
+        Check(incompatibleHost.Launched.Count == 2, "An incompatible Deadworks build does not enter a five-second restart loop");
+        incompatible.Poll(now.AddSeconds(63));
+        Check(incompatibleHost.Launched.Count == 3, "An incompatible build is retried after the maintenance backoff");
+
+        var pluginHost = new Host();
+        using var pluginFailure = new DraftServerSupervisor(Options.Create(WithState(Path.Combine(temporary, "plugin-failure"))),
+            Options.Create(new InGameOptions { Enabled = true }), pluginHost, NullLogger<DraftServerSupervisor>.Instance);
+        pluginFailure.Poll(now);
+        File.WriteAllText(Path.Combine(pluginHost.Launched[0].Directory, "server.log"),
+            "[PluginLoader] Failed to load AbilityDraft.Deadworks.dll: Unknown Deadlock server build: update the gameplay compatibility bridge");
+        pluginFailure.Poll(now.AddSeconds(2)); pluginFailure.Poll(now.AddSeconds(8));
+        Check(pluginHost.Processes[0].HasExited && pluginHost.Launched.Count == 2,
+            "A failed gameplay plugin is stopped immediately and receives maintenance backoff instead of a five-second restart loop");
+        pluginFailure.Poll(now.AddSeconds(63));
+        pluginFailure.Poll(now.AddSeconds(65));
+        Check(pluginHost.Launched.Count == 3 && !pluginHost.Processes[2].HasExited,
+            "A previous process's stale plugin error cannot stop the replacement server");
+
+        static DraftServerOptions WithState(string state) => new() { Enabled = true, StateDirectory = state };
     }
     public static async Task RunStartupLifetime(string temporary)
     {

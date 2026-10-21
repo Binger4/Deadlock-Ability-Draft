@@ -1,4 +1,4 @@
-param([string]$DeadworksReleaseDirectory = (Join-Path $PSScriptRoot '../Tools/DeadworksRelease/v0.6.1'))
+param([string]$DeadworksReleaseDirectory = (Join-Path $PSScriptRoot '../Tools/DeadworksRelease/v0.6.2'))
 # Close the game and servers before installing.
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'AbilityDraftPackage.ps1')

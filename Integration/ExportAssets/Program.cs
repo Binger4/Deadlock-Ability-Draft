@@ -4,9 +4,9 @@ using System.Security.Cryptography;
 
 // Builds and publishing must work without the developer's game or generated dist folder.
 // The API is a compile-time reference only; Deadworks supplies it on the game host.
-const string apiHash = "7392488D7BDEB7920E6EB97316AC146B91EC0D2ED8A9781AB60E567773C3D089";
-const string releaseUrl = "https://github.com/Deadworks-net/deadworks/releases/download/v0.6.1/deadworks-v0.6.1.zip";
-const string localisationCommit = "2e024f9b5d2363465cea9516c6f2e7ee039ea9f7";
+const string apiHash = "8953525BA9C18EEA39F3A2F3C82172D8E149A2F1087F035D276C3091A1DA7597";
+const string releaseUrl = "https://github.com/Deadworks-net/deadworks/releases/download/v0.6.2/deadworks-v0.6.2.zip";
+const string localisationCommit = "37f9aebdc62766aa13748f73309b9b8120549833";
 
 try
 {
@@ -18,14 +18,14 @@ try
     using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(3) };
     http.DefaultRequestHeaders.UserAgent.ParseAdd("AbilityDraft-ExportAssets/1.0");
 
-    var api = Path.Combine(root, "Tools/DeadworksRelease/v0.6.1/game/bin/win64/managed/DeadworksManaged.Api.dll");
+    var api = Path.Combine(root, "Tools/DeadworksRelease/v0.6.2/game/bin/win64/managed/DeadworksManaged.Api.dll");
     if (!ValidApi(api))
     {
         api = Path.Combine(cache, "sdk/DeadworksManaged.Api.dll");
         if (!ValidApi(api))
         {
-            Console.WriteLine("Preparing the official Deadworks 0.6.1 compile-time reference...");
-            var archivePath = Path.Combine(cache, "deadworks-v0.6.1.zip");
+            Console.WriteLine("Preparing the official Deadworks 0.6.2 compile-time reference...");
+            var archivePath = Path.Combine(cache, "deadworks-v0.6.2.zip");
             await Download(releaseUrl, archivePath);
             using (var archive = ZipFile.OpenRead(archivePath))
             {
@@ -60,13 +60,15 @@ try
     {
         const string name = "citadel_heroes_english.txt";
         var destination = Path.Combine(localisation, name);
-        if (!File.Exists(destination))
+        if (!File.Exists(destination) || !File.ReadAllText(destination).Contains("\"ability_nurse_healing_needles\"", StringComparison.Ordinal))
         {
             Console.WriteLine("Preparing hero localization for exports...");
             await Download($"https://raw.githubusercontent.com/SteamTracking/GameTracking-Deadlock/{localisationCommit}/game/citadel/resource/localization/citadel_heroes/{name}", destination);
         }
-        if (!File.ReadAllText(destination).Contains("\"ability_artist_homingbrush\"", StringComparison.Ordinal))
-            throw new InvalidDataException($"Missing Living Ink tokens in {destination}. Delete this cached template and build again.");
+        var tokens = File.ReadAllText(destination);
+        if (!tokens.Contains("\"ability_artist_homingbrush\"", StringComparison.Ordinal) ||
+            !tokens.Contains("\"ability_nurse_healing_needles\"", StringComparison.Ordinal))
+            throw new InvalidDataException($"Missing Living Ink or Healing Needles tokens in {destination}. Delete this cached template and build again.");
     }
     Console.WriteLine("Gameplay export companion and localization templates are ready.");
 

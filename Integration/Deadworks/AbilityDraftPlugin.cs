@@ -18,6 +18,7 @@ public sealed partial class AbilityDraftPlugin : DeadworksPluginBase
     private readonly Dictionary<string, Session> sessions = new();
     private readonly DeadworksRuntime game = new();
     private AbilityDraft.Gameplay.NativeDennyCompatibility? dennyCompatibility;
+    private readonly AbilityDraft.Gameplay.MapResourceGate resourceGate = new();
     public override void OnAbilityAttempt(AbilityAttemptEvent args) => AbilityDraft.Gameplay.DraftedAlternateFire.Guard(args);
     private DraftBackendClient backend = null!;
     private RuntimeDraftApplier applier = null!;
@@ -445,6 +446,7 @@ public sealed partial class AbilityDraftPlugin : DeadworksPluginBase
 
     public override void OnGameFrame(bool simulating, bool firstTick, bool lastTick)
     {
+        if (!resourceGate.Ready) return;
         HoldTrooperWaves();
         AuditPatronIntro();
         AuditLanes();
@@ -535,6 +537,7 @@ public sealed partial class AbilityDraftPlugin : DeadworksPluginBase
     }
     public override void OnStartupServer()
     {
+        if (!resourceGate.StartMap(Server.MapName, AbilityDraft.Gameplay.MapResourceGate.ReloadInitialMap)) return;
         abilityUndo.Clear();
         itemPurchases.Clear();
         inactivity.Clear(); lastInputButtons.Clear(); nextInactivityCheck = 0; matchLifetime = new();
@@ -570,6 +573,7 @@ public sealed partial class AbilityDraftPlugin : DeadworksPluginBase
     public override void OnPrecacheResources()
     {
         AbilityDraft.Gameplay.CompatibilityResources.Precache();
+        resourceGate.Precached();
         game.ClearResourceCoverage();
         if (resourceCatalog is null) return;
         var count = 0;

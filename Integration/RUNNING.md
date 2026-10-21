@@ -4,7 +4,7 @@ This guide runs the website, Custom Lobby, Public Queue and match workers on you
 
 ## First installation
 
-1. Complete the [prerequisites](INSTALLATION.md#prerequisites-for-building-and-hosting), [website installation](INSTALLATION.md#website-installation) and [build tools](INSTALLATION.md#build-tools). This includes the Visual C++ x64 runtime, PowerShell 7, .NET 10 SDK, CSDK, Source 2 Viewer CLI, Deadworks 0.6.1 release/source and bootstrap VPK/manifest. Finish the initial catalogue download in admin, then stop the website with Ctrl+C.
+1. Complete the [prerequisites](INSTALLATION.md#prerequisites-for-building-and-hosting), [website installation](INSTALLATION.md#website-installation) and [build tools](INSTALLATION.md#build-tools). This includes the Visual C++ x64 runtime, PowerShell 7, .NET 10 SDK, CSDK, Source 2 Viewer CLI, Deadworks 0.6.2 release/source and bootstrap VPK/manifest. Finish the initial catalogue download in admin, then stop the website with Ctrl+C.
 2. Locate your Deadlock installation through Steam's **Properties → Installed Files → Browse**. Close Deadlock before installing files. In PowerShell 7 at the repository root, initialize the local configuration with that path:
 
    ```powershell

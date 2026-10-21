@@ -2,6 +2,7 @@ using System.IO.Compression;
 using System.Text;
 using abilitydraft.Models;
 using abilitydraft.Services;
+using AbilityDraft.Gameplay;
 
 static class HeroGameplayChecks
 {
@@ -10,11 +11,15 @@ static class HeroGameplayChecks
         CheckInkLocalisation();
         CheckReportedShuffleExport(data, packer);
         CheckAllHeroShuffleExports(data);
+        CheckNurseExport(data);
+        CheckHealingNeedles(data, packer);
         var resources = DraftedHeroCompatibility.GameplayResources(data.AbilitiesDocument);
         Check(resources.Contains("particles/abilities/artist/artist_pullbrush.vpcf") &&
             resources.Contains("particles/abilities/airheart/airheart_jetpack_ambient.vpcf") &&
             resources.Contains("models/particle/blend/artist_solidblocker.vmdl"),
             "Gameplay precaching includes Living Ink's dependent drawing effects and Denny jetpack effects");
+        Check(resources.Contains("particles/abilities/bebop/bebop_sticky_bomb_preview.vpcf"),
+            "All-donor precaching includes Bebop's bomb preview before a foreign hero can cast it");
         var preset = CustomDraftPresetService.Export(new() { DraftMode = DraftMode.Custom, AbilityDraftShuffle = true });
         Check(CustomDraftPresetService.Import(preset, data, new(), new()).Config.AbilityDraftShuffle,
             "Custom preset import restores the Shuffle setting");
@@ -56,6 +61,86 @@ static class HeroGameplayChecks
             DeadlockFileParser.GetString(final, "ESlot_Signature_1") == "ability_deadpack_flamethrower",
             "Denny's fixes preserve the drafted slots instead of forcing the jetpack into slot 2");
         CheckInkTeams(data, packer);
+    }
+
+    static void CheckNurseExport(ParsedDeadlockData data)
+    {
+        var nurse = data.Heroes.Single(h => h.Key == "hero_nurse");
+        var room = new DraftRoom { DeadlockData = data };
+        var player = room.Players[0]; player.PlayerId = "nurse-regression"; player.HeroKey = "hero_wraith";
+        player.Loadout.RegularAbilities.AddRange([nurse.Ability1, nurse.Ability2, nurse.Ability3]);
+        player.Loadout.Ultimate = nurse.Ultimate;
+        var files = new ModFileGenerator().Generate(room);
+        var heroes = Kv3Parser.Parse(files.Single(f => f.Path == "scripts/heroes.vdata").Content);
+        var abilities = Kv3Parser.Parse(files.Single(f => f.Path == "scripts/abilities.vdata").Content);
+        var bindings = (Kv3Object)((Kv3Object)heroes.Root["hero_wraith"])["m_mapBoundAbilities"];
+        var keys = new[] { nurse.Ability1, nurse.Ability2, HealingNeedlesWeapon.AbilityFor("citadel_weapon_wraith_set"), nurse.Ultimate };
+        Check(keys.Select((key, i) => DeadlockFileParser.GetString(bindings, "ESlot_Signature_" + (i + 1)) == key && abilities.Root.ContainsKey(key)).All(valid => valid),
+            "Wraith with all four Nurse abilities retains every native definition and drafted slot");
+        Check(files.Any(f => f.Path == "host/managed/plugins/AbilityDraft.Gameplay.dll") && files.Any(f => f.Path == "HOST-SETUP.txt"),
+            "Ordinary donor exports also include the host resource-precache companion and its setup instructions");
+    }
+
+    static void CheckHealingNeedles(ParsedDeadlockData data, DeadPackerService? packer)
+    {
+        var prepared = data.AbilitiesDocument.Clone();
+        var originalWeapon = Kv3Writer.Write(new() { Root = (Kv3Object)prepared.Root[HealingNeedlesWeapon.Weapon] });
+        var originalAbility = Kv3Writer.Write(new() { Root = (Kv3Object)prepared.Root[HealingNeedlesWeapon.Ability] });
+        static Kv3Object Gun(Kv3Document document, string key) => (Kv3Object)((Kv3Object)((Kv3Object)document.Root[key])["m_mapWeaponInfos"])["primary"];
+        static string Value(Kv3Value value) => Kv3Writer.Write(new() { Root = new Kv3Object { ["value"] = value } });
+        var cadence = new[] { "m_iClipSize", "m_flCycleTime", "m_iBurstShotCount", "m_flIntraBurstCycleTime",
+            "m_bSpinsUp", "m_flMaxSpinCycleTime", "m_flSpinIncreaseRate", "m_flSpinDecayRate" };
+        var nativeNeedles = Gun(data.AbilitiesDocument, HealingNeedlesWeapon.Weapon);
+        foreach (var hero in data.Heroes.Where(h => !h.Disabled && !h.HeroLabs && h.Key != "hero_targetdummy"))
+        {
+            var key = DraftedHeroCompatibility.HealingNeedlesForWeapon(prepared, hero.WeaponAbility);
+            var ability = (Kv3Object)prepared.Root[key];
+            var weapon = DeadlockFileParser.GetString(ability, "m_NewWeaponAbility");
+            var recipient = Gun(data.AbilitiesDocument, hero.WeaponAbility);
+            var healing = Gun(prepared, weapon);
+            Check(cadence.All(field => recipient.TryGetValue(field, out var value)
+                    ? healing.TryGetValue(field, out var actual) && Value(actual) == Value(value) : !healing.ContainsKey(field)) &&
+                ((Kv3Object)ability["m_mapDependentAbilities"]).ContainsKey(weapon) &&
+                DeadlockFileParser.GetString((Kv3Object)prepared.Root[weapon], "_class") == "ability_nurse_healing_needles_weapon" &&
+                nativeNeedles.Pairs.Where(p => !cadence.Contains(p.Key)).All(p => Value(healing[p.Key]) == Value(p.Value)),
+                hero.Key + ": Healing Needles uses the recipient's capacity and firing cadence with Nurse's healing projectile");
+        }
+        Check(Kv3Writer.Write(new() { Root = (Kv3Object)prepared.Root[HealingNeedlesWeapon.Weapon] }) == originalWeapon &&
+            Kv3Writer.Write(new() { Root = (Kv3Object)prepared.Root[HealingNeedlesWeapon.Ability] }) == originalAbility,
+            "Recipient-specific Healing Needles definitions preserve Nurse's native skill and weapon");
+
+        var room = Room(data);
+        room.Players[0].HeroKey = "hero_wraith";
+        room.Players[0].Loadout.RegularAbilities[0] = HealingNeedlesWeapon.Ability;
+        room.Players[0].Loadout.RegularAbilities[1] = DraftedHeroCompatibility.ChessPieces[0];
+        var lash = room.Players[1]; lash.PlayerId = "needles-lash"; lash.HeroKey = "hero_lash";
+        var donor = data.Heroes.Single(h => h.Key == "hero_lash");
+        lash.Loadout.RegularAbilities.AddRange([donor.Ability1, HealingNeedlesWeapon.Ability, donor.Ability3]); lash.Loadout.Ultimate = donor.Ultimate;
+        var files = new ModFileGenerator().Generate(room);
+        var heroes = Kv3Parser.Parse(files.Single(f => f.Path == "scripts/heroes.vdata").Content);
+        var abilities = Kv3Parser.Parse(files.Single(f => f.Path == "scripts/abilities.vdata").Content);
+        var wraithBindings = (Kv3Object)((Kv3Object)heroes.Root["hero_wraith"])["m_mapBoundAbilities"];
+        var lashBindings = (Kv3Object)((Kv3Object)heroes.Root["hero_lash"])["m_mapBoundAbilities"];
+        var wraithKey = DeadlockFileParser.GetString(wraithBindings, "ESlot_Signature_1");
+        var lashKey = DeadlockFileParser.GetString(lashBindings, "ESlot_Signature_2");
+        Check(wraithKey == HealingNeedlesWeapon.AbilityFor("citadel_weapon_wraith_set") &&
+            lashKey == HealingNeedlesWeapon.AbilityFor("citadel_weapon_lash_set") && wraithKey != lashKey &&
+            DeadlockFileParser.GetString(wraithBindings, "ESlot_Weapon_Primary").EndsWith(DraftedHeroCompatibility.ChessWeaponSuffix, StringComparison.Ordinal),
+            "Two recipients in the same draft keep independent Healing Needles stats, including with Solomon controls");
+        var tokens = new LocalisationParser().ParseTokens([files.Single(f => f.Path == AbilityVariantLocalisation.ResourcePath + "citadel_heroes_english.txt").Content]);
+        Check(tokens[wraithKey] == tokens[HealingNeedlesWeapon.Ability] && tokens[lashKey + "_t2_desc"] == tokens[HealingNeedlesWeapon.Ability + "_t2_desc"],
+            "Healing Needles variants retain localized names and upgrade descriptions");
+        if (packer is not null)
+        {
+            var packed = packer.TryCreateVpk("HEALINGNEEDLES", files);
+            Check(packed.Success && packed.VpkBytes is { Length: > 1000 }, "Native compiler packs distinct recipient Healing Needles weapons: " + packed.LogPath);
+        }
+        room.Players[0].Loadout.Weapon = "citadel_weapon_haze_set";
+        var overridden = new ModFileGenerator().Generate(room);
+        var overrideHeroes = Kv3Parser.Parse(overridden.Single(f => f.Path == "scripts/heroes.vdata").Content);
+        var overrideBindings = (Kv3Object)((Kv3Object)overrideHeroes.Root["hero_wraith"])["m_mapBoundAbilities"];
+        Check(DeadlockFileParser.GetString(overrideBindings, "ESlot_Signature_1") == HealingNeedlesWeapon.AbilityFor("citadel_weapon_haze_set"),
+            "Healing Needles follows an explicit weapon override instead of the body's original gun");
     }
 
     static void CheckReportedShuffleExport(ParsedDeadlockData data, DeadPackerService? packer)
@@ -108,7 +193,8 @@ static class HeroGameplayChecks
                 {
                     var original = slot == 4 ? p.Loadout.Ultimate! : p.Loadout.RegularAbilities[slot - 1];
                     var actual = DeadlockFileParser.GetString(bindings, "ESlot_Signature_" + slot);
-                    if (actual != original && !(original == DraftedHeroCompatibility.LivingInk && actual.StartsWith(original + "_abilitydraft_", StringComparison.Ordinal)))
+                    if (HealingNeedlesWeapon.OriginalKey(actual) != original &&
+                        !(original == DraftedHeroCompatibility.LivingInk && actual.StartsWith(original + "_abilitydraft_", StringComparison.Ordinal)))
                         throw new Exception($"Incorrect shuffled export for {p.HeroKey}, slot {slot}: {actual}");
                 }
             }

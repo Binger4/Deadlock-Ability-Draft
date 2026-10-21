@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
-    <DeadworksManagedDir Condition="'$(DeadworksManagedDir)' == ''">../../Tools/DeadworksRelease/v0.6.1/game/bin/win64/managed</DeadworksManagedDir>
+    <DeadworksManagedDir Condition="'$(DeadworksManagedDir)' == ''">../../Tools/DeadworksRelease/v0.6.2/game/bin/win64/managed</DeadworksManagedDir>
   </PropertyGroup>
   <ItemGroup>
     <EmbeddedResource Include="compatibility-resources.json" LogicalName="AbilityDraft.Gameplay.compatibility-resources.json" />

@@ -103,11 +103,16 @@ public sealed class DraftServerSupervisor(IOptions<DraftServerOptions> options, 
                 {
                     var status = new FileInfo(Path.Combine(directory, "status.json"));
                     entry.Ready = !entry.Process.HasExited && status.Exists && status.LastWriteTimeUtc >= entry.Started && now - status.LastWriteTimeUtc < TimeSpan.FromSeconds(30);
-                    if (entry.Process.HasExited || now - entry.Started > TimeSpan.FromMinutes(2) && !entry.Ready)
+                    var bootstrapFailure = entry.Ready ? null : BootstrapFailure(directory, entry.Started);
+                    if (bootstrapFailure is not null || entry.Process.HasExited || now - entry.Started > TimeSpan.FromMinutes(2) && !entry.Ready)
                     {
                         entry.Process.Dispose(); entry.Process = null; entry.Ready = false;
-                        entry.RetryAt = now.AddSeconds(5);
-                        logger.LogWarning("Drafting server {Role} stopped; restarting in five seconds", entry.Launch.Role);
+                        entry.RetryAt = now.AddSeconds(bootstrapFailure is null ? 5 : 60);
+                        if (bootstrapFailure is null)
+                            logger.LogWarning("Drafting server {Role} stopped; restarting in five seconds", entry.Launch.Role);
+                        else
+                            logger.LogError("Drafting server {Role} cannot initialize: {Reason}. Update the compatible server components; retrying in one minute. Log: {LogPath}",
+                                entry.Launch.Role, bootstrapFailure, Path.Combine(directory, "server.log"));
                     }
                 }
                 if (entry.Process is null && now >= entry.RetryAt)
@@ -129,6 +134,21 @@ public sealed class DraftServerSupervisor(IOptions<DraftServerOptions> options, 
                 if (entry.Process is not null) File.WriteAllText(Path.Combine(directory, "owner.heartbeat"), now.ToString("O"));
             }
         }
+    }
+    private static string? BootstrapFailure(string directory, DateTime started)
+    {
+        try
+        {
+            var path = Path.Combine(directory, "server.log");
+            if (File.GetLastWriteTimeUtc(path) < started) return null;
+            return File.ReadLines(path).LastOrDefault(line =>
+                line.Contains("is not supported by this version of Deadworks", StringComparison.Ordinal) ||
+                line.Contains("Failed to find signatures:", StringComparison.Ordinal) ||
+                line.Contains("Failed to load AbilityDraft.Deadworks.dll:", StringComparison.Ordinal) ||
+                line.Contains("Unknown Deadlock server build:", StringComparison.Ordinal)) is { } failure
+                ? failure[..Math.Min(failure.Length, 1024)] : null;
+        }
+        catch (IOException) { return null; }
     }
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {

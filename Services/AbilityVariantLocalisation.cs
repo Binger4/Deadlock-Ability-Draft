@@ -12,7 +12,8 @@ public static partial class AbilityVariantLocalisation
     {
         var variants = abilityKeys.Distinct(StringComparer.Ordinal).Select(key => (Key: key, Source:
             key.StartsWith(DraftedHeroCompatibility.LivingInk + "_abilitydraft_", StringComparison.Ordinal) ? DraftedHeroCompatibility.LivingInk :
-            key.StartsWith(DraftedHeroCompatibility.DrawInk + "_abilitydraft_", StringComparison.Ordinal) ? DraftedHeroCompatibility.DrawInk : null))
+            key.StartsWith(DraftedHeroCompatibility.DrawInk + "_abilitydraft_", StringComparison.Ordinal) ? DraftedHeroCompatibility.DrawInk :
+            key.StartsWith(AbilityDraft.Gameplay.HealingNeedlesWeapon.Ability + "_abilitydraft_", StringComparison.Ordinal) ? AbilityDraft.Gameplay.HealingNeedlesWeapon.Ability : null))
             .Where(v => v.Source is not null).ToArray();
         var aliases = new StringBuilder();
         var existing = TokenLine().Matches(original).Select(m => m.Groups["key"].Value).ToHashSet(StringComparer.Ordinal);

@@ -271,7 +271,11 @@ Data/Generated/Rooms/{ROOM_CODE}/
 Data/Packing/Rooms/{ROOM_CODE}/
 ```
 
-The ZIP download contains only generated `.vdata` files.
+The ZIP download contains generated `.vdata` files,
+`host/managed/plugins/AbilityDraft.Gameplay.dll` and `HOST-SETUP.txt`.
+Install this companion on a Deadworks 0.6.2 host before loading a browser-generated draft;
+it precaches donor effects and fixes native cross-hero slot lookups. Players use the
+same generated VPK. The integrated Ability Draft server already contains this helper.
 
 VPK packing logs are stored in the room output folder when packing is attempted.
 

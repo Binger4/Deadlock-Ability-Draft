@@ -5,7 +5,7 @@ param(
     [string]$DraftServer = '127.0.0.1:27067',
     [string]$PublicQueueServer = '127.0.0.1:27068',
     [string]$WebsiteUrl,
-    [string]$DeadworksSourceDirectory = (Join-Path $PSScriptRoot '../Tools/DeadworksRelease/source-v0.6.1/Deadworks-net-deadworks-3888df2'),
+    [string]$DeadworksSourceDirectory = (Join-Path $PSScriptRoot '../Tools/DeadworksRelease/source-v0.6.2/Deadworks-net-deadworks-7b01d7f'),
     [switch]$NoRestore
 )
 $ErrorActionPreference = 'Stop'
@@ -26,6 +26,7 @@ if (!$GameRoot) {
     if (!$GameRoot) { throw 'Specify -GameRoot or set GameRoot in Integration/local/settings.json to include the Ability Draft menu.' }
 }
 $GameRoot = (Resolve-Path -LiteralPath $GameRoot).Path
+& (Join-Path $PSScriptRoot 'Read-InstalledGameData.ps1') -GameRoot $GameRoot
 $dotnetCommand = Get-Command dotnet.exe -CommandType Application -ErrorAction SilentlyContinue
 $dotnetExe = if ($dotnetCommand) { $dotnetCommand.Source } else { Join-Path $env:ProgramFiles 'dotnet/dotnet.exe' }
 if (!(Test-Path -LiteralPath $dotnetExe)) { throw 'Install the .NET 10 SDK before building the addon.' }
@@ -46,6 +47,16 @@ $content = Join-Path $csdk "content/citadel_addons/$addon"
 $game = Join-Path $csdk "game/citadel_addons/$addon"
 $dist = Join-Path $PSScriptRoot 'dist'
 New-Item -ItemType Directory -Path $content,$dist -Force | Out-Null
+$gameVersion = Get-Content -LiteralPath (Join-Path $GameRoot 'game/citadel/steam.inf') |
+    Where-Object { $_ -match '^ClientVersion=' } | Select-Object -First 1
+if (!$gameVersion) { throw 'Cannot identify the installed Deadlock build.' }
+$buildManifest = [ordered]@{
+    GameBuild = [int]($gameVersion -replace '^ClientVersion=', '')
+    ServerSha256 = (Get-FileHash -LiteralPath (Join-Path $GameRoot 'game/citadel/bin/win64/server.dll')).Hash
+    AbilitiesSha256 = (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot '../Data/Deadlock/abilities.vdata')).Hash
+    HeroesSha256 = (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot '../Data/Deadlock/heroes.vdata')).Hash
+    DeadworksVersion = '0.6.2'
+}
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Addon/panorama') -Destination $content -Recurse
 & (Join-Path $PSScriptRoot 'Build-Gameplay.ps1') -NoRestore:$NoRestore
 $dataBuild = @('build', (Join-Path $PSScriptRoot 'CompatibilityData/AbilityDraft.CompatibilityData.csproj'), '-m:1')
@@ -111,6 +122,13 @@ if (!(Get-ChildItem -LiteralPath (Join-Path $game 'panorama/images') -Recurse -F
     throw 'Compiler did not produce the icon resources.'
 }
 if (!(Test-Path -LiteralPath (Join-Path $game 'scripts/abilities.vdata_c'))) { throw 'Gameplay compatibility data was not compiled.' }
+$compiledCatalogue = Join-Path $PSScriptRoot 'local/compiled-abilities-check.vdata'
+if (Test-Path -LiteralPath $compiledCatalogue) { Remove-Item -LiteralPath $compiledCatalogue }
+& $viewer -i (Join-Path $game 'scripts/abilities.vdata_c') -o $compiledCatalogue -d | Out-Null
+if ($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $compiledCatalogue)) { throw 'Cannot verify the compiled ability catalogue.' }
+& $dotnetExe run --no-build --project (Join-Path $PSScriptRoot 'CompatibilityData/AbilityDraft.CompatibilityData.csproj') -- --verify-abilities (Join-Path $content 'scripts/abilities.vdata') $compiledCatalogue
+if ($LASTEXITCODE -ne 0) { throw 'The compiled catalogue lost abilities or changed native classes; the player VPK was not packaged.' }
+$buildManifest | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $game 'scripts/ability_draft_build.json') -Encoding utf8
 Set-Content -LiteralPath (Join-Path $dist 'compiled-addon-path.txt') -Value $game
 $notices = Join-Path $dist 'deadworks-bootstrap-source'
 New-Item -ItemType Directory -Path $notices -Force | Out-Null
@@ -122,3 +140,4 @@ if ($NoRestore) { $packBuild += '--no-restore' }
 if ($LASTEXITCODE -ne 0) { throw 'Could not build static VPK packaging.' }
 & $dotnetExe run --no-build --project (Join-Path $PSScriptRoot 'Packaging/AbilityDraft.Packaging.csproj') -- $game (Join-Path $dist 'ability_draft_base.vpk')
 if ($LASTEXITCODE -ne 0) { throw 'Static VPK packaging failed.' }
+Copy-Item -LiteralPath (Join-Path $game 'scripts/ability_draft_build.json') -Destination (Join-Path $dist 'game-build.json') -Force

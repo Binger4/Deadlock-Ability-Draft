@@ -8,41 +8,40 @@ namespace AbilityDraft.Gameplay;
 
 public sealed class NativeDennyCompatibility : IDisposable
 {
-    public const string ServerSha256 = "8C67DC79F082A45A69C5EAC99BD4CFD9E965D74154F3CE0BDF30A224158B4293";
-    public const int OriginalLookupRva = 0x52dc90;
+    public const string ServerSha256 = "350169906B5FDC5D0C3669468532CCCD43DC59F099BE5766752A13FD726F6939";
+    public const int OriginalLookupRva = 0x532b80;
     public sealed record LookupPatch(int CallRva, int TargetRva, string Ability);
-    // Build 6794: HeatPool start/refresh/damage, Flamethrower tick/upgrade,
+    // Build 6805: HeatPool start/refresh/damage, Flamethrower tick/upgrade,
     // MaxHeat forced descent, and the shared heat helper. MaxHeat also waits
     // for Deadpack's ultimate; checking an unrelated slot-4 entity can leave
     // the overheat gauge stuck. Flamethrower's stop callback also uses slot 1
     // for Charge Blast (the 0x218a620 crash in the Oct 18 dump).
     private static readonly LookupPatch[] PatchesProfile = [
-        new(0x118025b, OriginalLookupRva, "ability_deadpack_rocketeer"),
-        new(0x11802b3, OriginalLookupRva, "ability_deadpack_rocketeer"),
-        new(0x1180343, 0x52dd60, "ability_deadpack_rocketeer"),
-        new(0x118046a, OriginalLookupRva, "ability_deadpack_rocketeer"),
-        new(0x11804a9, OriginalLookupRva, "ability_deadpack_rocketeer"),
-        new(0x1339f64, OriginalLookupRva, "ability_deadpack_rocketeer"),
-        new(0x133a898, OriginalLookupRva, "ability_deadpack_rocketeer"),
-        new(0x1374d01, OriginalLookupRva, "ability_deadpack_rocketeer"),
-        new(0x137744f, OriginalLookupRva, "ability_deadpack_rocketeer"),
-        new(0x1185a2e, 0x52dd60, "ability_deadpack_ultimate"),
-        new(0x133c86d, OriginalLookupRva, "ability_deadpack_chargeblast"),
+        new(0x117e92b, OriginalLookupRva, "ability_deadpack_rocketeer"),
+        new(0x117e993, OriginalLookupRva, "ability_deadpack_rocketeer"),
+        new(0x117ea43, 0x532c50, "ability_deadpack_rocketeer"),
+        new(0x117eb6a, OriginalLookupRva, "ability_deadpack_rocketeer"),
+        new(0x117eba9, OriginalLookupRva, "ability_deadpack_rocketeer"),
+        new(0x13510d4, OriginalLookupRva, "ability_deadpack_rocketeer"),
+        new(0x1351a08, OriginalLookupRva, "ability_deadpack_rocketeer"),
+        new(0x138e771, OriginalLookupRva, "ability_deadpack_rocketeer"),
+        new(0x1390ebf, OriginalLookupRva, "ability_deadpack_rocketeer"),
+        new(0x11847fe, 0x532c50, "ability_deadpack_ultimate"),
+        new(0x13539dd, OriginalLookupRva, "ability_deadpack_chargeblast"),
         // PullBrush checks, charge consumption, drawing limits and ownership.
         // Its native leader slot cannot identify an Ability Draft parent.
-        new(0x1223748, 0x52dd60, "ability_artist_homingbrush"),
-        new(0x122378b, 0x52dd60, "ability_artist_homingbrush"),
-        new(0x136bef2, OriginalLookupRva, "ability_artist_homingbrush"),
-        new(0x136bf20, OriginalLookupRva, "ability_artist_homingbrush"),
-        new(0x136bf46, OriginalLookupRva, "ability_artist_homingbrush"),
-        new(0x136bf67, OriginalLookupRva, "ability_artist_homingbrush"),
-        new(0x136bfaa, OriginalLookupRva, "ability_artist_homingbrush"),
-        new(0x136bfcb, OriginalLookupRva, "ability_artist_homingbrush"),
-        new(0x136c014, OriginalLookupRva, "ability_artist_homingbrush"),
-        new(0x136c04b, OriginalLookupRva, "ability_artist_homingbrush"),
-        new(0x136c1be, OriginalLookupRva, "ability_artist_homingbrush"),
-        new(0x136c20d, OriginalLookupRva, "ability_artist_homingbrush"),
-        new(0x13348ef, OriginalLookupRva, "ability_artist_homingbrush")];
+        new(0x1231c28, 0x532c50, "ability_artist_homingbrush"),
+        new(0x1231c6b, 0x532c50, "ability_artist_homingbrush"),
+        new(0x1385398, OriginalLookupRva, "ability_artist_homingbrush"),
+        new(0x13853c6, OriginalLookupRva, "ability_artist_homingbrush"),
+        new(0x13853ec, OriginalLookupRva, "ability_artist_homingbrush"),
+        new(0x138540d, OriginalLookupRva, "ability_artist_homingbrush"),
+        new(0x1385449, OriginalLookupRva, "ability_artist_homingbrush"),
+        new(0x138546a, OriginalLookupRva, "ability_artist_homingbrush"),
+        new(0x13854b2, OriginalLookupRva, "ability_artist_homingbrush"),
+        new(0x13854e1, OriginalLookupRva, "ability_artist_homingbrush"),
+        new(0x13857bd, OriginalLookupRva, "ability_artist_homingbrush"),
+        new(0x138580c, OriginalLookupRva, "ability_artist_homingbrush")];
     public static ReadOnlySpan<LookupPatch> Profile => PatchesProfile;
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate nint Lookup(nint component, short slot);

@@ -147,16 +147,42 @@ public sealed class DeadlockVDataUpdateService(
             logger.LogInformation("{Message}", state.LastMessage);
             return new DeadlockVDataCheckResult(false, true, state.LastMessage);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        // HttpClient timeouts also throw OperationCanceledException. Only the
+        // caller's cancellation should stop the hosted update loop.
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
             var errorUtc = DateTime.UtcNow;
             state.LastCheckedUtc = checkedUtc;
             state.LastErrorUtc = errorUtc;
             state.LastError = $"{errorUtc:O}: {ex.Message}";
-            state.LastResult = $"GitHub check failed during {trigger}; local files were kept";
+            var networkFailure = ex is HttpRequestException or OperationCanceledException;
+            var hasLocalData = dataService.Current.IsLoaded;
+            state.LastResult = networkFailure
+                ? hasLocalData ? "GitHub update check unavailable; using existing local game data"
+                    : "GitHub update check unavailable; no local game data is loaded"
+                : $"GitHub check failed during {trigger}; local files were kept";
             state.LastMessage = state.LastResult;
             SaveState(state);
-            logger.LogError(ex, "Deadlock vdata update check failed at {Timestamp}. Existing local files were kept.", errorUtc);
+            if (networkFailure)
+            {
+                var reason = ex switch
+                {
+                    OperationCanceledException => "request timed out",
+                    HttpRequestException { HttpRequestError: HttpRequestError.NameResolutionError } => "GitHub DNS lookup failed",
+                    HttpRequestException { StatusCode: { } status } => $"GitHub returned HTTP {(int)status}",
+                    _ => "GitHub connection failed"
+                };
+                var retry = options.Value.AutomaticUpdatesEnabled
+                    ? $"Next scheduled check in {UpdateIntervalMinutes()} minutes."
+                    : "Use Verify now to retry.";
+                logger.Log(hasLocalData ? LogLevel.Warning : LogLevel.Error,
+                    "{Message} ({Reason}). {Retry}", state.LastMessage, reason, retry);
+                logger.LogDebug(ex, "Deadlock vdata update network diagnostics.");
+            }
+            else
+            {
+                logger.LogError(ex, "Deadlock vdata update check failed at {Timestamp}. Existing local files were kept.", errorUtc);
+            }
             return new DeadlockVDataCheckResult(false, false, state.LastMessage);
         }
     }
@@ -235,6 +261,7 @@ public sealed class DeadlockVDataUpdateService(
     private HttpClient CreateClient()
     {
         var client = httpClientFactory.CreateClient(nameof(DeadlockVDataUpdateService));
+        client.Timeout = TimeSpan.FromSeconds(15);
         client.DefaultRequestHeaders.UserAgent.Clear();
         client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("DeadlockAbilityDraft", "1.0"));
         client.DefaultRequestHeaders.Accept.Clear();

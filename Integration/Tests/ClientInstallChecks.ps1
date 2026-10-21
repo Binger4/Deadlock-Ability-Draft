@@ -19,6 +19,10 @@ try {
     Check-Install $false 'A stale menu-only package is rejected'
     Copy-Item -LiteralPath (Join-Path $integration 'dist/ability_draft_base.vpk') -Destination $package -Force
     Check-Install $true 'The complete package works with the normal mod-manager SearchPaths'
+    $versionPath = Join-Path $temporary 'game/citadel/steam.inf'
+    [IO.File]::WriteAllText($versionPath, "ClientVersion=999999`n")
+    Check-Install $false 'A game update invalidates the previous full ability catalogue before servers start'
+    Remove-Item -LiteralPath $versionPath
     $stale = Join-Path $addons 'pak52_dir.vpk'
     $bytes = [IO.File]::ReadAllBytes($package)
     $bytes[$bytes.Length - 1] = $bytes[$bytes.Length - 1] -bxor 1

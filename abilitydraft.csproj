@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <Compile Remove="Integration\**" />
+    <Compile Include="Integration/Gameplay/HealingNeedlesWeapon.cs" Link="Services/HealingNeedlesWeapon.cs" />
     <Content Remove="Integration\**" />
     <None Remove="Integration\**" />
     <ProjectReference Include="Integration\Contracts\AbilityDraft.Contracts.csproj" />

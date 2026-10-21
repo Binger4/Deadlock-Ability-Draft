@@ -1,3 +1,5 @@
+using AbilityDraft.Gameplay;
+
 namespace abilitydraft.Services;
 
 public static class DraftedHeroCompatibility
@@ -37,9 +39,11 @@ public static class DraftedHeroCompatibility
                 foreach (var parent in parents.Items.OfType<Kv3Scalar>())
                     if (parent.Value is string name) Visit(name);
         }
-        foreach (var key in ChessPieces.Concat(new[] { MovePiece, "ability_chessmaster_forkpiece", LivingInk, DrawInk,
-            "ability_deadpack_chargeblast", "ability_deadpack_rocketeer", "ability_deadpack_flamethrower", "ability_deadpack_ultimate",
-            "ability_deadpack_primary_weapon_charge", "ability_deadpack_zip_line" })) Visit(key);
+        // Cross-hero casts can request preview/projectile/modifier resources
+        // that AddHero alone does not put in the session manifest. A short
+        // donor whitelist misses new heroes and freezes debug servers in the
+        // engine's just-in-time resource assertion (e.g. Bebop's bomb preview).
+        foreach (var key in abilities.Root.Keys) Visit(key);
         return resources.ToArray();
     }
 
@@ -79,6 +83,39 @@ public static class DraftedHeroCompatibility
 
     public static string InkForSlot(int slot) => LivingInk + "_abilitydraft_slot_" + slot;
     public static string DrawingForSlot(int slot) => DrawInk + "_abilitydraft_slot_" + slot;
+
+    public static string HealingNeedlesForWeapon(Kv3Document abilities, string primary)
+    {
+        primary = HealingNeedlesWeapon.Primary(primary);
+        var key = HealingNeedlesWeapon.AbilityFor(primary);
+        if (abilities.Root.ContainsKey(key)) return key;
+        var source = abilities.Root[HealingNeedlesWeapon.Ability] as Kv3Object
+            ?? throw new InvalidOperationException("Missing Healing Needles ability definition.");
+        var healingWeapon = (Kv3Object)abilities.Root[HealingNeedlesWeapon.Weapon].Clone();
+        var recipientWeapon = abilities.Root[primary] as Kv3Object
+            ?? throw new InvalidOperationException("Missing Healing Needles recipient weapon: " + primary);
+        var recipientInfos = (Kv3Object)recipientWeapon["m_mapWeaponInfos"];
+        var recipientPrimary = (Kv3Object)recipientInfos["primary"];
+        // Keep Nurse's projectile, targeting and healing logic. Only capacity
+        // and firing cadence (including burst timing) come from the recipient.
+        foreach (var info in ((Kv3Object)healingWeapon["m_mapWeaponInfos"]).Pairs.Select(p => p.Value).OfType<Kv3Object>())
+            foreach (var field in new[] { "m_iClipSize", "m_flCycleTime", "m_iBurstShotCount", "m_flIntraBurstCycleTime",
+                "m_bSpinsUp", "m_flMaxSpinCycleTime", "m_flSpinIncreaseRate", "m_flSpinDecayRate" })
+            {
+                if (recipientPrimary.TryGetValue(field, out var value)) info.Set(field, value.Clone());
+                else info.Remove(field);
+            }
+        var weaponKey = HealingNeedlesWeapon.WeaponFor(primary);
+        abilities.Root.Set(weaponKey, healingWeapon);
+        var ability = (Kv3Object)source.Clone();
+        ability.Set("m_NewWeaponAbility", new Kv3Scalar(weaponKey));
+        var dependencies = (Kv3Object)ability["m_mapDependentAbilities"];
+        var link = dependencies[HealingNeedlesWeapon.Weapon].Clone();
+        dependencies.Remove(HealingNeedlesWeapon.Weapon);
+        dependencies.Set(weaponKey, link);
+        abilities.Root.Set(key, ability);
+        return key;
+    }
 
     public static bool HasChessPieces(IEnumerable<string> keys) => keys.Any(key => ChessPieces.Any(piece =>
         key == piece || key.StartsWith(piece + "_abilitydraft_", StringComparison.Ordinal)));

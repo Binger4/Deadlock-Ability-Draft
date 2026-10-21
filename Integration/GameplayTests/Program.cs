@@ -2,9 +2,32 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using AbilityDraft.Gameplay;
 
+var reloads = new List<string>();
+Check(HealingNeedlesWeapon.AbilityFor("citadel_weapon_wraith_set_abilitydraft_chess") == HealingNeedlesWeapon.AbilityFor("citadel_weapon_wraith_set") &&
+    HealingNeedlesWeapon.AbilityFor("citadel_weapon_wraith_set_abilitydraft_ink") == HealingNeedlesWeapon.AbilityFor("citadel_weapon_wraith_set"),
+    "Runtime Healing Needles uses the same recipient weapon with either drafted alternate-fire control");
+Check(HealingNeedlesWeapon.OriginalKey(HealingNeedlesWeapon.AbilityFor("citadel_weapon_lash_set")) == HealingNeedlesWeapon.Ability &&
+    HealingNeedlesWeapon.AbilityFor(HealingNeedlesWeapon.NursePrimary) == HealingNeedlesWeapon.Ability,
+    "Recipient Healing Needles retains the drafted identity and Nurse keeps her native ability");
+var gate = new MapResourceGate();
+Check(!gate.StartMap("dl_midtown", reloads.Add) && !gate.Ready && reloads.SequenceEqual(new[] { "dl_midtown" }),
+    "A map loaded before managed precaching is reloaded before server readiness");
+gate.Precached();
+Check(gate.StartMap("dl_midtown", reloads.Add) && gate.Ready && reloads.Count == 1,
+    "A fully precached map becomes ready without a reload loop");
+gate.Precached();
+Check(gate.StartMap("custom_map", reloads.Add) && reloads.Count == 1,
+    "Normal later map changes retain the host's selected map");
+var brokenGate = new MapResourceGate();
+brokenGate.StartMap("custom_map", reloads.Add);
+try { brokenGate.StartMap("custom_map", reloads.Add); throw new Exception("Missing precache callback was accepted"); }
+catch (InvalidOperationException) { Check(!brokenGate.Ready, "Repeated missing resource callbacks cannot report a ready server"); }
+
 Check(CompatibilityResources.Paths.Contains("particles/abilities/artist/artist_pullbrush.vpcf") &&
     CompatibilityResources.Paths.Contains("particles/abilities/airheart/airheart_jetpack_ambient.vpcf"),
     "The shipped host helper embeds the resources missing in both live server failures");
+Check(CompatibilityResources.Paths.Contains("particles/abilities/bebop/bebop_sticky_bomb_preview.vpcf"),
+    "The shipped host helper covers ordinary donor abilities as well as the special compatibility cases");
 foreach (var piece in new[] { "ability_chessmaster_throwbishop", "ability_chessmaster_knightbuff", "ability_chessmaster_queen" })
     Check(DraftedAlternateFire.ControlFor([DraftedAlternateFire.LivingInk, piece]) == DraftedAlternateFire.MovePiece &&
         DraftedAlternateFire.ControlFor([piece, DraftedAlternateFire.LivingInk]) == DraftedAlternateFire.MovePiece,
@@ -23,10 +46,10 @@ try
     Check(component.Handle == componentPointer, "SDK wrapper preserves the exact native owner component without scanning other players");
 }
 finally { Marshal.FreeHGlobal(componentPointer); }
-Check(NativeDennyCompatibility.Profile.ToArray().Any(p => p.CallRva == 0x133c86d && p.Ability == "ability_deadpack_chargeblast"),
+Check(NativeDennyCompatibility.Profile.ToArray().Any(p => p.CallRva == 0x13539dd && p.Ability == "ability_deadpack_chargeblast"),
     "Jettison Fuel shutdown targets Charge Blast, covering the second crash dump");
-Check(NativeDennyCompatibility.Profile.ToArray().Count(p => p.Ability == DraftedAlternateFire.LivingInk) == 13,
-    "All thirteen Living Ink leader lookups use the owner rather than a fixed slot");
+Check(NativeDennyCompatibility.Profile.ToArray().Count(p => p.Ability == DraftedAlternateFire.LivingInk) == 12,
+    "All twelve build-6805 Living Ink leader lookups use the owner rather than a fixed slot");
 if (args.Length != 1) throw new ArgumentException("Pass the current server.dll path.");
 Check(Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(args[0]))) == NativeDennyCompatibility.ServerSha256,
     "The compatibility profile matches the attached crash report and installed game");

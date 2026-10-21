@@ -96,11 +96,12 @@ public sealed class DeadworksRuntime : IGameDraftRuntime
             pawn.HeroID.ToHeroName() == heroKey && pawn.TeamNum == Team(team);
     }
     public RuntimeAbility[] SignatureAbilities(string steam) => Pawn(steam).AbilityComponent.Abilities
-        .Where(a => a.IsSignature).Select(a => new RuntimeAbility((int)a.AbilitySlot + 1, DraftedAlternateFire.OriginalKey(a.AbilityName), NativeAbilityProgress.Read(a))).ToArray();
+        .Where(a => a.IsSignature).Select(a => new RuntimeAbility((int)a.AbilitySlot + 1, OriginalKey(a.AbilityName), NativeAbilityProgress.Read(a))).ToArray();
+    private static string OriginalKey(string key) => HealingNeedlesWeapon.OriginalKey(DraftedAlternateFire.OriginalKey(key));
     public bool RemoveAbility(string steam, string key)
     {
         var pawn = Pawn(steam);
-        var actual = pawn.AbilityComponent.Abilities.FirstOrDefault(a => a.IsSignature && DraftedAlternateFire.OriginalKey(a.AbilityName) == key);
+        var actual = pawn.AbilityComponent.Abilities.FirstOrDefault(a => a.IsSignature && OriginalKey(a.AbilityName) == key);
         return pawn.RemoveAbility(actual?.AbilityName ?? key);
     }
     public bool AddAbility(string steam, RuntimeAbility ability)
@@ -108,8 +109,12 @@ public sealed class DeadworksRuntime : IGameDraftRuntime
         if (ability.Slot is < 1 or > 4) throw new InvalidOperationException("Invalid slot.");
         var pawn = Pawn(steam);
         var slot = (EAbilitySlot)(ability.Slot - 1);
-        if (pawn.AddAbility(ability.Key, (ushort)slot) is null) return false;
-        var added = pawn.AbilityComponent.Abilities.SingleOrDefault(a => a.AbilitySlot == slot && a.AbilityName == ability.Key);
+        var key = ability.Key == HealingNeedlesWeapon.Ability
+            ? HealingNeedlesWeapon.AbilityFor(pawn.AbilityComponent.GetAbilityBySlot(EAbilitySlot.WeaponPrimary)?.AbilityName
+                ?? throw new InvalidOperationException("Healing Needles requires the recipient's primary weapon."))
+            : ability.Key;
+        if (pawn.AddAbility(key, (ushort)slot) is null) return false;
+        var added = pawn.AbilityComponent.Abilities.SingleOrDefault(a => a.AbilitySlot == slot && a.AbilityName == key);
         if (added is null) return false;
         added.UpgradeBits = ability.UpgradeBits;
         NativeAbilityProgress.BindDraftedSlot(added);

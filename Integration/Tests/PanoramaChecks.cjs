@@ -22,6 +22,7 @@ Object.values(buttons).forEach(b => b.SetPanelEvent = (name, cb) => { b[name] = 
 const entryCtx = { $: { GetContextPanel: () => menu, Schedule: (time, cb) => scheduled = cb, Msg: () => {},
  DispatchEvent: (...args) => dispatches.push(args) }, AbilityDraftServer: '127.0.0.1:27067', AbilityDraftPublicServer: '127.0.0.1:27068' };
 vm.createContext(entryCtx); vm.runInContext(fs.readFileSync('Integration/Addon/panorama/scripts/ability_draft_entry.js', 'utf8'), entryCtx);
+scheduled(); // The native menu binds its entries after layout creation.
 assert.equal(buttons.AbilityDraftPublic.enabled, true);
 queued = true; scheduled();
 assert.equal(buttons.AbilityDraftPublic.enabled, false); assert.equal(buttons.AbilityDraftCustom.enabled, false);

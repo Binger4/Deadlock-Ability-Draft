@@ -33,6 +33,7 @@ App_Data/
 # Local SDK/tool install. DeadPacker can stay in the repo.
 Tools/Reduced_CSDK_12/
 Tools/Source2ViewerCLI/
+Tools/Source2ViewerCLI-*/
 
 # Generated room output and temporary packing workspace
 Data/Generated/**

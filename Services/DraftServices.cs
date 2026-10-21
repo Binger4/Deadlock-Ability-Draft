@@ -2680,7 +2680,8 @@ public sealed class ModFileGenerator(IWebHostEnvironment? environment = null)
             // Keep the stock weapon if a runtime-created loadout omits an override.
             if (!string.IsNullOrWhiteSpace(player.Loadout.Weapon))
                 boundAbilities.Set("ESlot_Weapon_Primary", new Kv3Scalar(player.Loadout.Weapon));
-            var signatureAbilities = EnsureUnique(SlotAbilities(room, player, abilitiesDocument), abilitiesDocument);
+            var primary = DeadlockFileParser.GetString(boundAbilities, "ESlot_Weapon_Primary");
+            var signatureAbilities = EnsureUnique(SlotAbilities(room, player, abilitiesDocument, primary), abilitiesDocument);
             DraftedHeroCompatibility.BindAlternateFire(boundAbilities, signatureAbilities, abilitiesDocument);
 
             for (var i = 0; i < signatureAbilities.Count; i++)
@@ -2695,22 +2696,24 @@ public sealed class ModFileGenerator(IWebHostEnvironment? environment = null)
             new("scripts/abilities.vdata", Kv3Writer.Write(abilitiesDocument))
         };
 
-        if (DraftTurnService.ActiveSlots(room).SelectMany(p => p.Loadout.PickedAbilityKeys()).Contains(DraftedHeroCompatibility.LivingInk))
+        if (DraftTurnService.ActiveSlots(room).SelectMany(p => p.Loadout.PickedAbilityKeys())
+            .Any(key => key is DraftedHeroCompatibility.LivingInk or AbilityDraft.Gameplay.HealingNeedlesWeapon.Ability))
             files.AddRange(AbilityVariantLocalisation.Generate(
                 ExportAssetPath("Integration/dist/localization"), abilitiesDocument.Root.Keys));
 
-        if (DraftTurnService.ActiveSlots(room).SelectMany(p => p.Loadout.PickedAbilityKeys()).Any(key =>
-            key is "ability_deadpack_rocketeer" or "ability_deadpack_flamethrower" or DraftedHeroCompatibility.LivingInk))
+        if (DraftTurnService.ActiveSlots(room).Any(p => p.Loadout.PickedAbilityKeys().Any()))
         {
             var companion = ExportAssetPath("Integration/dist/gameplay/AbilityDraft.Gameplay.dll");
             if (!File.Exists(companion))
                 throw new InvalidOperationException("The server is missing its gameplay export companion. Rebuild the website with dotnet build or dotnet publish and keep the complete output folder.");
             files.Add(new("host/managed/plugins/AbilityDraft.Gameplay.dll", "", File.ReadAllBytes(companion)));
             files.Add(new("HOST-SETUP.txt", """
-                Ability Draft gameplay compatibility — Deadlock build 6794, Deadworks 0.6.1
+                Ability Draft gameplay compatibility — Deadlock build 6805, Deadworks 0.6.2
 
-                Chimera Mk1, Jettison Fuel and Living Ink need server-side fixes for native slot lookups.
-                A VPK alone cannot apply this fix. The host must use Deadworks 0.6.1 on Windows
+                Cross-hero abilities need their donor effects precached before map loading.
+                Missing effects can freeze the server on an engine resource assertion.
+                The helper also fixes native slot lookups for Chimera Mk1, Jettison Fuel and Living Ink.
+                The host must use Deadworks 0.6.2 on Windows
                 or Proton and copy host/managed/plugins/AbilityDraft.Gameplay.dll from this ZIP
                 into game/bin/win64/managed/plugins before starting Deadworks.
                 All participants must use the same generated VPK. Start the custom match with
@@ -2734,11 +2737,15 @@ public sealed class ModFileGenerator(IWebHostEnvironment? environment = null)
         return File.Exists(contentPath) || Directory.Exists(contentPath) ? contentPath : Path.Combine(AppContext.BaseDirectory, relativePath);
     }
 
-    private static IReadOnlyList<string> SlotAbilities(DraftRoom room, DraftPlayerSlot player, Kv3Document abilitiesDocument)
+    private static IReadOnlyList<string> SlotAbilities(DraftRoom room, DraftPlayerSlot player, Kv3Document abilitiesDocument, string primary)
     {
         var chess = DraftedHeroCompatibility.HasChessPieces(player.Loadout.PickedAbilityKeys());
-        string Controls(string key, int slot) => key == DraftedHeroCompatibility.LivingInk ?
-            chess ? DraftedHeroCompatibility.InkWithoutDrawing : DraftedHeroCompatibility.InkForSlot(slot) : key;
+        string Controls(string key, int slot) => key switch
+        {
+            DraftedHeroCompatibility.LivingInk => chess ? DraftedHeroCompatibility.InkWithoutDrawing : DraftedHeroCompatibility.InkForSlot(slot),
+            AbilityDraft.Gameplay.HealingNeedlesWeapon.Ability => DraftedHeroCompatibility.HealingNeedlesForWeapon(abilitiesDocument, primary),
+            _ => key
+        };
         if (!room.Config.FlexibleUltimateSlots)
         {
             return [

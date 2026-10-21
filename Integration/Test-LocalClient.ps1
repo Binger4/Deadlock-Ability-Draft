@@ -14,6 +14,18 @@ $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
 if ($manifest.SchemaVersion -ne 1 -or !$manifest.IncludesBridge -or $manifest.Sha256 -notmatch '^[0-9A-Fa-f]{64}$') {
     throw 'The complete player VPK manifest is invalid. Rebuild the base addon.'
 }
+$versionPath = Join-Path $GameRoot 'game/citadel/steam.inf'
+if (Test-Path -LiteralPath $versionPath) {
+    $buildPath = Join-Path $PackageDirectory 'game-build.json'
+    if (!(Test-Path -LiteralPath $buildPath)) { throw 'The player VPK has no game-build manifest. Rebuild and install the base addon for the current game.' }
+    $build = Get-Content -LiteralPath $buildPath -Raw | ConvertFrom-Json
+    $version = Get-Content -LiteralPath $versionPath | Where-Object { $_ -match '^ClientVersion=' } | Select-Object -First 1
+    $server = Join-Path $GameRoot 'game/citadel/bin/win64/server.dll'
+    if (!$version -or [int]($version -replace '^ClientVersion=', '') -ne $build.GameBuild -or
+        !(Test-Path -LiteralPath $server) -or (Get-FileHash -LiteralPath $server).Hash -ne $build.ServerSha256) {
+        throw 'Deadlock was updated after this Ability Draft VPK was built. Its full ability catalogue is stale. Rebuild with Build-BaseAddon.ps1 and install the new package before starting servers.'
+    }
+}
 $info = Get-Content -LiteralPath (Join-Path $GameRoot 'game/citadel/gameinfo.gi') -Raw
 $search = [regex]::Matches($info, '(?ms)^[\t ]*SearchPaths[\t ]*\r?\n[\t ]*\{([^{}]*)\}')
 if ($search.Count -ne 1) { throw 'Cannot verify the game SearchPaths. Review the current mod installation.' }

@@ -1,6 +1,14 @@
 using abilitydraft.Services;
 using System.Text.Json;
 
+if (args is ["--verify-abilities", var expectedPath, var compiledPath])
+{
+    var expected = Kv3Parser.Parse(File.ReadAllText(expectedPath));
+    GameCatalogValidation.VerifyAbilities(expected, Kv3Parser.Parse(File.ReadAllText(compiledPath)));
+    Console.WriteLine($"Verified every compiled ability definition and native class ({expected.Root.Pairs.Count(p => p.Value is Kv3Object)} definitions).");
+    return;
+}
+
 if (args is ["--localization", var gameRoot, var contentDirectory, var templatesDirectory])
 {
     var stock = Path.Combine(gameRoot, "game/citadel", AbilityVariantLocalisation.ResourcePath);
@@ -19,8 +27,8 @@ if (args is ["--localization", var gameRoot, var contentDirectory, var templates
         }
         count++;
     }
-    if (count == 0) throw new InvalidOperationException("No Living Ink localization was found in the installed game.");
-    Console.WriteLine($"Prepared Living Ink name, modifier and upgrade aliases in {count} localization files.");
+    if (count == 0) throw new InvalidOperationException("No gameplay variant localization was found in the installed game.");
+    Console.WriteLine($"Prepared Living Ink and Healing Needles name, modifier and upgrade aliases in {count} localization files.");
     return;
 }
 
@@ -43,7 +51,10 @@ foreach (var hero in heroes.Root.Pairs.Select(p => p.Value).OfType<Kv3Object>())
     {
         DraftedHeroCompatibility.ChessWeapon(abilities, weapon);
         DraftedHeroCompatibility.AlternateFireWeapon(abilities, weapon, DraftedHeroCompatibility.InkWeaponSuffix);
+        if (abilities.Root[weapon] is Kv3Object primary && primary.TryGetValue("m_mapWeaponInfos", out var infos) &&
+            infos is Kv3Object weaponInfos && weaponInfos.ContainsKey("primary"))
+            DraftedHeroCompatibility.HealingNeedlesForWeapon(abilities, weapon);
     }
 var directory = Path.Combine(args[2], "scripts"); Directory.CreateDirectory(directory);
 File.WriteAllText(Path.Combine(directory, "abilities.vdata"), Kv3Writer.Write(abilities));
-Console.WriteLine("Prepared Solomon dependencies and secondary-fire variants for the runtime addon.");
+Console.WriteLine("Prepared Solomon controls, secondary-fire variants and recipient-weapon Healing Needles for the runtime addon.");
